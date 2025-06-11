@@ -15,9 +15,9 @@ const ChatHeader = ({ toUser, users, onToggleUserList }) => {
         aria-label="Toggle user list"
       >
         <Users size={20} />
-      </button>
+      </button> 
 
-      {/* Desktop Icon - Only shown on desktop */}
+      {/* Desktop Icon - Only shown only desktop */}
       <span className='hidden lg:block text-white text-2xl font-bold flex-shrink-0'>
         <BsPersonLinesFill />
       </span>
@@ -28,7 +28,7 @@ const ChatHeader = ({ toUser, users, onToggleUserList }) => {
           Chat with <span className="text-green-300 capitalize">{toUser || '...'}</span>
         </h1>
         
-        {/* User Status - Only show if user is selected */}
+        {/* User Status - Only show if user is selected  any user */}
         {toUser && (
           <div className="flex items-center gap-2 mt-1">
             <span
