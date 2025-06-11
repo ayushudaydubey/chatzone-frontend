@@ -20,7 +20,7 @@ const ChatBox = ({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState('');
 
-  const userObj = users.find(u => (typeof u === 'object' ? u.username : u) === toUser);
+  const userObj = users?.find(u => (typeof u === 'object' ? u.username : u) === toUser);
   const isOnline = userObj && typeof userObj === 'object' ? userObj.isOnline : true;
 
   const handleFileSelect = async (e) => {
