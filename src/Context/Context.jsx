@@ -4,7 +4,7 @@ import axiosInstance, { fileUploadInstance } from '../utils/axios';
 
 export const chatContext = createContext(null);
 
-const socket = io("http://localhost:3000");
+const socket = io("https://chatzone-backend.onrender.com");
 
 const Context = (props) => {
   const [username, setUsername] = useState("");
