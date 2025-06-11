@@ -1,205 +1,160 @@
-import React, { useRef, useState } from 'react';
-import { Paperclip, Send } from 'lucide-react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import axiosInstance from '../utils/axios';
+import moonGirl from '../assets/login.avif';
+import { toast } from 'react-toastify';
 
-const ChatBox = ({
-  handleSend,
-  message,
-  setMessage,
-  toUser,
-  isAiTyping,
-  AI_BOT_NAME,
-  users,
-  handleFileUpload,
-  messages = [],
-  username
-}) => {
-  const fileInputRef = useRef(null);
-  const formRef = useRef(null);
-  const inputRef = useRef(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadError, setUploadError] = useState('');
+const Register = () => {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    mobileNo: '',
+    email: '',
+    password: ''
+  });
 
-  const userObj = users?.find(u => (typeof u === 'object' ? u.username : u) === toUser);
-  const isOnline = userObj && typeof userObj === 'object' ? userObj.isOnline : true;
+  const handleChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+  };
 
-  const handleFileSelect = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
 
-    setUploadError('');
-    setUploadProgress(0);
-
-    if (file.size > 50 * 1024 * 1024) {
-      setUploadError('File size must be less than 50MB');
+    if (!formData.name || !formData.email || !formData.password) {
+     toast.warning("Please fill all required fields");
       return;
     }
 
-    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-      setUploadError('Only image and video files are allowed');
+    if (formData.password.length < 6) {
+      toast.warning("Password must be at least 6 characters");
+      return;
+    }
+      if (!formData.mobileNo == 10) {
+      toast.warning("To valid Mobile number 10 digits are required");
+      return;
+    }
+     if ((!formData.mobileNo.startsWith(6 || 7 || 8 || 9))) {
+      toast.error("Valid mobile number is required");
+      return;
+    }
+      if ((!formData.email.includes("@" &&"com"))) {
+      toast.error("Enter Valid Email");
       return;
     }
 
-    setIsUploading(true);
+    setLoading(true);
 
     try {
-      await handleFileUpload(file, (progress) => setUploadProgress(progress));
-      setUploadProgress(100);
-      setTimeout(() => setUploadProgress(0), 2000);
+      await axiosInstance.post("/user/register", formData);
+      toast.success("Registration successful!");
+
+      setFormData({
+        name: '',
+        mobileNo: '',
+        email: '',
+        password: ''
+      });
+
+      navigate("/login");
     } catch (error) {
-      setUploadError(error.message || 'Failed to upload file');
-      setUploadProgress(0);
+      console.error("Registration failed:", error);
+      toast.error(error.response?.data?.message || "Registration failed. Please try again.");
     } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      setLoading(false);
     }
-  };
-
-  const triggerFileInput = () => {
-    setUploadError('');
-    fileInputRef.current?.click();
-  };
-
-  const handleFormSubmit = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const chatContainer = document.querySelector('.overflow-y-auto');
-    const scrollTop = chatContainer ? chatContainer.scrollTop : 0;
-
-    handleSend(e);
-
-    if (inputRef.current) {
-      setTimeout(() => {
-        inputRef.current.focus();
-        if (chatContainer) {
-          chatContainer.scrollTop = scrollTop;
-        }
-      }, 0);
-    }
-  };
-
-  const getPlaceholderText = () => {
-    if (isUploading) return `Uploading... ${uploadProgress}%`;
-    if (!toUser) return 'Select a user to chat';
-    return window.innerWidth < 640
-      ? `Message ${toUser}`
-      : `Message ${toUser} ${isOnline ? '(online)' : '(offline)'}`;
   };
 
   return (
-    <>
-      {/* Message Display Section */}
-      <div className="messages-container overflow-y-auto flex flex-col gap-2 p-3">
-        {messages.map((msg, index) => (
-          <div
-            key={index}
-            className={`message ${msg.fromUser === username ? 'sent' : 'received'} ${msg.isAiBot ? 'ai-message' : ''}`}
-          >
-            <div className="message-content">
-              {msg.isAiBot && <span className="ai-badge">🤖 AI</span>}
-              <p>{msg.message}</p>
-              <small>{new Date(msg.timestamp).toLocaleTimeString()}</small>
-            </div>
-          </div>
-        ))}
+    <div className="min-h-screen w-full bg-stone-950 overflow-hidden">
+      <div className="flex flex-col md:flex-row w-full h-full">
 
-        {/* AI Typing Indicator */}
-        {isAiTyping && toUser === AI_BOT_NAME && (
-          <div className="message received ai-message">
-            <div className="message-content">
-              <span className="ai-badge">🤖 AI</span>
-              <div className="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Chat Input Section */}
-      <div className="p-2 sm:p-3 md:p-4 border-t border-gray-700 bg-zinc-950 sticky bottom-0">
-        {isUploading && (
-          <div className="mb-2 sm:mb-3">
-            <div className="flex justify-between text-xs text-gray-400 mb-1">
-              <span>Uploading...</span>
-              <span>{uploadProgress}%</span>
-            </div>
-            <div className="w-full bg-gray-700 rounded-full h-2">
-              <div
-                className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${uploadProgress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {uploadError && (
-          <div className="mb-2 sm:mb-3 p-2 bg-red-900/20 border border-red-500/30 rounded-md text-xs text-red-400">
-            {uploadError}
-          </div>
-        )}
-
-        <form
-          ref={formRef}
-          onSubmit={handleFormSubmit}
-          className="flex gap-1 sm:gap-2 items-center"
-        >
-          <button
-            type="button"
-            onClick={triggerFileInput}
-            disabled={!toUser || isUploading}
-            className="p-2 text-gray-400 hover:text-green-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg hover:bg-gray-800/50"
-            title="Upload"
-          >
-            <Paperclip size={18} className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            onChange={handleFileSelect}
-            className="hidden"
+        {/* Image Panel (Visible on all screens) */}
+        <div className="w-full md:w-1/2 h-72 md:h-auto">
+          <img
+            className="w-full h-full object-cover object-center"
+            src={moonGirl}
+            alt="Login Illustration"
           />
+        </div>
 
-          <input
-            ref={inputRef}
-            type="text"
-            className="flex-1 p-2 sm:p-3 text-sm sm:text-base text-blue-100 border border-gray-600 rounded-md bg-zinc-800 focus:outline-none"
-            placeholder={getPlaceholderText()}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            disabled={!toUser || isUploading}
-            autoComplete="off"
-          />
+        {/* Form Panel */}
+        <div className="w-full md:w-1/2 flex flex-col items-center justify-center px-6 py-8 text-blue-200">
+          <h1 className="text-2xl md:text-3xl font-bold mb-2">Create Your Account</h1>
+          <p className="text-center text-zinc-400 mb-6 text-sm md:text-base">
+            Join ChatZone today and start meaningful conversations instantly. <br className="hidden sm:block" />
+            It only takes a minute to get started!
+          </p>
 
-          <button
-            type="submit"
-            disabled={!toUser || (!message.trim() && !isUploading) || isUploading}
-            className="bg-green-700 text-white px-3 py-2 sm:px-4 sm:py-3 rounded-md hover:bg-green-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isUploading ? (
-              <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Send size={16} className="w-4 h-4 sm:w-5 sm:h-5" />
-            )}
-          </button>
-        </form>
+          <form onSubmit={handleSubmit} className="w-full max-w-sm">
+            <input
+              type="text"
+              name="name"
+              placeholder="Your Name"
+              value={formData.name}
+              onChange={handleChange}
+              className="w-full px-4 py-3 mb-4 bg-zinc-900 border border-blue-200 rounded-md outline-none text-sm"
+              required
+            />
 
-        {isUploading && (
-          <div className="mt-2 text-xs text-gray-400 flex gap-2 sm:hidden">
-            <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
-            <span>Uploading... {uploadProgress}%</span>
-          </div>
-        )}
+            <input
+              type="text"
+              name="mobileNo"
+              placeholder="Mobile Number"
+              value={formData.mobileNo}
+              onChange={handleChange}
+              className="w-full px-4 py-3 mb-4 bg-zinc-900 border border-blue-200 rounded-md outline-none text-sm"
+            />
+
+            <input
+              type="email"
+              name="email"
+              placeholder="Email Address"
+              value={formData.email}
+              onChange={handleChange}
+              className="w-full px-4 py-3 mb-4 bg-zinc-900 border border-blue-200 rounded-md outline-none text-sm"
+              required
+            />
+
+            <input
+              type="password"
+              name="password"
+              placeholder="Password (min 6 chars)"
+              value={formData.password}
+              onChange={handleChange}
+              className="w-full px-4 py-3 mb-4 bg-zinc-900 border border-blue-200 rounded-md outline-none text-sm"
+              required
+            />
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full border-2 border-blue-200 text-white font-semibold py-2 rounded-md hover:bg-blue-400 hover:text-black hover:border-blue-400 transition disabled:opacity-50"
+            >
+              {loading ? "Creating Account..." : "Create Account"}
+            </button>
+          </form>
+
+          <p className="text-sm text-gray-400 mt-4">
+            Already have an account?{" "}
+            <button
+              onClick={() => navigate("/login")}
+              className="text-blue-500 cursor-pointer hover:underline"
+            >
+              Login here
+            </button>
+          </p>
+
+          <p className="text-xs text-zinc-500 mt-2 flex flex-wrap justify-center gap-2 text-center">
+            <span>Fast onboarding</span> • <span>Secure data</span> • <span>Real-time chat</span>
+          </p>
+        </div>
       </div>
-    </>
+    </div>
   );
 };
 
-export default ChatBox;
+export default Register;
