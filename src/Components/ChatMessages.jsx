@@ -1,8 +1,15 @@
 import React from 'react';
 import { Download, FileText } from 'lucide-react';
 
-const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, messagesEndRef }) => {
-  
+const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, messagesEndRef, AI_BOT_NAME }) => {
+  console.log('ChatMessages props:', { 
+    messagesCount: messages?.length || 0, 
+    username, 
+    toUser, 
+    AI_BOT_NAME,
+    sampleMessages: messages?.slice(0, 2) 
+  });
+
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -67,7 +74,7 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
                   className="p-1 hover:bg-gray-600 rounded transition-colors"
                   title="Download"
                 >
-                 
+                  <Download size={12} />
                 </a>
               </div>
             </div>
@@ -76,7 +83,6 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
       );
     }
 
-    // Fallback for other file types
     return (
       <div className="flex items-center gap-2 p-3 bg-gray-700 rounded-lg max-w-xs lg:max-w-sm">
         <FileText size={20} className="text-gray-300 flex-shrink-0" />
@@ -96,15 +102,65 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
           className="p-1 hover:bg-gray-600 rounded transition-colors flex-shrink-0"
           title="Download"
         >
-          {/* <Download size={14} /> */}
+          <Download size={14} />
         </a>
       </div>
     );
   };
 
+  // Ensure messages is always an array and handle null/undefined cases
+  const safeMessages = Array.isArray(messages) ? messages : [];
+  
+  // Filter messages for the current conversation
+  const filteredMessages = safeMessages.filter((m) => {
+    // Add comprehensive null checks
+    if (!m || typeof m !== 'object') {
+      console.warn('Invalid message object:', m);
+      return false;
+    }
+    
+    // Check for required message properties
+    if (!m.fromUser || !m.toUser) {
+      console.warn('Message missing fromUser or toUser:', m);
+      return false;
+    }
+    
+    // For AI chat conversations
+    if (toUser === AI_BOT_NAME) {
+      const isValidAiMessage = (
+        (m.fromUser === username && m.toUser === AI_BOT_NAME) ||
+        (m.fromUser === AI_BOT_NAME && m.toUser === username)
+      );
+      return isValidAiMessage;
+    }
+    
+    // For regular user-to-user conversations
+    const isValidRegularMessage = (
+      (m.fromUser === username && m.toUser === toUser) ||
+      (m.fromUser === toUser && m.toUser === username)
+    );
+    
+    return isValidRegularMessage;
+  });
+
+  // Sort messages by timestamp to ensure proper chronological order
+  const sortedMessages = filteredMessages.sort((a, b) => {
+    const timeA = new Date(a.timestamp || a.timeStamp || 0);
+    const timeB = new Date(b.timestamp || b.timeStamp || 0);
+    return timeA - timeB;
+  });
+
+  console.log('Filtered and sorted messages:', {
+    total: safeMessages.length,
+    filtered: filteredMessages.length,
+    sorted: sortedMessages.length,
+    forUser: toUser,
+    currentUser: username
+  });
+
   return (
     <div className="flex-1 px-3 lg:px-6 py-4 space-y-3 pb-32 lg:pb-28 overflow-y-auto bg-zinc-950">
-      {/* No chat selected state */}
+      {/* Show placeholder when no user is selected */}
       {!toUser && (
         <div className="flex flex-col items-center justify-center h-full text-center px-4">
           <div className="text-6xl lg:text-8xl mb-4 opacity-20">💬</div>
@@ -117,77 +173,73 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
         </div>
       )}
 
-      {/* Messages */}
-      {toUser && messages
-        .filter(
-          (m) =>
-            (m.fromUser === username && m.toUser === toUser) ||
-            (m.fromUser === toUser && m.toUser === username)
-        )
-        .map((m, i, filteredMessages) => {
-          const messageTime = m.timestamp || m.timeStamp || Date.now();
-          const isFileMessage = m.messageType === 'file';
-          const isOwnMessage = m.fromUser === username;
-          
-          return (
-            <div key={i} className="flex flex-col">
-              {/* Date Separator */}
-              {i === 0 || formatDate(messageTime) !== formatDate(filteredMessages[i - 1]?.timestamp || filteredMessages[i - 1]?.timeStamp || Date.now()) ? (
-                <div className="text-center text-xs text-gray-500 my-3 relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-700"></div>
-                  </div>
-                  <div className="relative inline-block bg-zinc-950 px-3">
-                    {formatDate(messageTime)}
-                  </div>
-                </div>
-              ) : null}
+      {/* Show messages when user is selected */}
+      {toUser && sortedMessages.map((m, i) => {
+        // Get timestamp with fallback options
+        const messageTime = m.timestamp || m.timeStamp || new Date().toISOString();
+        const isFileMessage = m.messageType === 'file' || m.isFile || false;
+        const isOwnMessage = m.fromUser === username;
+        
+        // Get previous message timestamp for date comparison
+        const prevMessageTime = i > 0 ? 
+          (sortedMessages[i - 1]?.timestamp || sortedMessages[i - 1]?.timeStamp || new Date().toISOString()) : 
+          null;
 
-              {/* Message Bubble */}
-              <div className={`px-3 py-3 rounded-2xl mb-1 max-w-[85%] lg:max-w-sm break-words ${
-                isOwnMessage
-                  ? 'bg-green-900 text-white self-end ml-auto rounded-br-md'
-                  : 'bg-green-800 text-white self-start mr-auto rounded-bl-md'
-              }`}>
-                <div className="flex flex-col gap-1">
-                  {/* Sender Name - Only show for received messages on mobile */}
-                  {!isOwnMessage && (
-                    <span className="font-medium text-green-300 capitalize text-xs lg:text-sm">
-                      {m.fromUser}
-                    </span>
-                  )}
-                  
-                  {/* Message Content */}
-                  <div className="flex-1">
-                    {isFileMessage ? (
-                      <div className="mt-1">
-                        {renderFileMessage(m)}
-                      </div>
-                    ) : (
-                      <span className="text-sm lg:text-base leading-relaxed">
-                        {m.message}
-                      </span>
-                    )}
-                  </div>
+        return (
+          <div key={m._id || m.id || `msg-${i}-${Date.now()}`} className="flex flex-col">
+            {/* Show date separator when date changes */}
+            {(i === 0 || (prevMessageTime && formatDate(messageTime) !== formatDate(prevMessageTime))) && (
+              <div className="text-center text-xs text-gray-500 my-3 relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-700"></div>
                 </div>
-                
-                {/* Timestamp */}
-                <div className={`text-xs mt-2 ${
-                  isOwnMessage ? 'text-green-200' : 'text-gray-300'
-                } text-right`}>
-                  {formatTime(messageTime)}
+                <div className="relative inline-block bg-zinc-950 px-3">
+                  {formatDate(messageTime)}
                 </div>
               </div>
+            )}
+
+            {/* Message bubble */}
+            <div className={`px-3 py-3 rounded-2xl mb-1 max-w-[85%] lg:max-w-sm break-words ${
+              isOwnMessage
+                ? 'bg-green-800 text-white self-end ml-auto rounded-br-md'
+                : 'bg-green-700/70 text-white self-start mr-auto rounded-bl-md'
+            }`}>
+              <div className="flex flex-col gap-1">
+                {/* Show sender name for incoming messages */}
+                {!isOwnMessage && (
+                  <span className="font-medium text-blue-300 capitalize text-xs lg:text-sm">
+                    {m.fromUser}
+                  </span>
+                )}
+                
+                {/* Message content */}
+                <div className="flex-1">
+                  {isFileMessage ? (
+                    <div className="mt-1">
+                      {renderFileMessage(m)}
+                    </div>
+                  ) : (
+                    <span className="text-sm lg:text-base leading-relaxed whitespace-pre-wrap">
+                      {m.message || 'No message content'}
+                    </span>
+                  )}
+                </div>
+              </div>
+              
+              {/* Message timestamp */}
+              <div className={`text-xs mt-2 ${
+                isOwnMessage ? 'text-blue-200' : 'text-gray-300'
+              } text-right`}>
+                {formatTime(messageTime)}
+              </div>
             </div>
-          );
-        })}
-      
-      {/* Empty chat state */}
-      {toUser && messages.filter(
-        (m) =>
-          (m.fromUser === username && m.toUser === toUser) ||
-          (m.fromUser === toUser && m.toUser === username)
-      ).length === 0 && (
+          </div>
+        );
+      })}
+
+      {/* Show empty state when no messages exist for selected user */}
+      {toUser && sortedMessages.length === 0 && (
         <div className="flex flex-col items-center justify-center h-full text-center px-4">
           <div className="text-4xl lg:text-6xl mb-4 opacity-30">👋</div>
           <h3 className="text-lg lg:text-xl font-semibold text-gray-300 mb-2">
@@ -198,7 +250,8 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
           </p>
         </div>
       )}
-      
+
+      {/* Scroll anchor for auto-scroll to bottom */}
       <div ref={messagesEndRef} />
     </div>
   );

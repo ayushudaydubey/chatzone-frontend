@@ -25,7 +25,7 @@ const Register = () => {
     e.preventDefault();
 
     if (!formData.name || !formData.email || !formData.password) {
-     toast.warning("Please fill all required fields");
+      toast.warning("Please fill all required fields");
       return;
     }
 
@@ -33,15 +33,16 @@ const Register = () => {
       toast.warning("Password must be at least 6 characters");
       return;
     }
-      if (!formData.mobileNo == 10) {
+    if (!formData.mobileNo == 10) {
       toast.warning("To valid Mobile number 10 digits are required");
       return;
     }
-     if ((!formData.mobileNo.startsWith(6 || 7 || 8 || 9))) {
+    if (!['6', '7', '8', '9'].includes(formData.mobileNo.charAt(0))) {
       toast.error("Valid mobile number is required");
       return;
     }
-      if ((!formData.email.includes("@" &&"com"))) {
+
+    if ((!formData.email.includes("@" && "com"))) {
       toast.error("Enter Valid Email");
       return;
     }

@@ -1,8 +1,13 @@
 import axios from 'axios';
 
+const BASE_URL =
+  process.env.NODE_ENV === 'development'
+    ? 'http://localhost:3000'
+    : 'https://chatzone-backend.onrender.com';
+
 // Create axios instance
 const axiosInstance = axios.create({
-  baseURL: 'https://chatzone-backend.onrender.com',
+  baseURL: BASE_URL,
   withCredentials: true, // This is crucial for cookie-based auth
   timeout: 10000,
   headers: {
@@ -12,7 +17,7 @@ const axiosInstance = axios.create({
 
 // Create a separate instance for file uploads
 const fileUploadInstance = axios.create({
-  baseURL: 'https://chatzone-backend.onrender.com',
+  baseURL: BASE_URL,
   withCredentials: true, // Important for file uploads too
   timeout: 120000,
   headers: {

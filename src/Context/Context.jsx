@@ -4,7 +4,7 @@ import axiosInstance, { fileUploadInstance } from '../utils/axios';
 
 export const chatContext = createContext(null);
 
-const socket = io("https://chatzone-backend.onrender.com");
+const socket = io("http://localhost:3000");
 
 const Context = (props) => {
   const [username, setUsername] = useState("");
@@ -48,6 +48,19 @@ const Context = (props) => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Function to save AI message to database
+  const saveAiMessage = useCallback(async (messageData) => {
+    try {
+      const response = await axiosInstance.post('/user/save-ai-message', messageData);
+      if (response.data.success) {
+        console.log('AI message saved successfully');
+        return response.data;
+      }
+    } catch (error) {
+      console.error("Error saving AI message:", error);
+    }
+  }, []);
 
   // Function to fetch unread messages and last messages from database
   const fetchUnreadAndLastMessages = useCallback(async () => {
@@ -125,32 +138,212 @@ const Context = (props) => {
     }
   }, [username, AI_BOT_NAME]);
 
-  // Main initialization effect
+  // FIXED: Improved load chat history function with better error handling and debugging
+  const loadChatHistory = useCallback(async () => {
+    if (!username || !toUser) {
+      console.log('Cannot load chat history: missing username or toUser', { username, toUser });
+      return;
+    }
+    
+    console.log(`🔄 Loading chat history between ${username} and ${toUser}`);
+    
+    try {
+      let response;
+      let apiUrl;
+      
+      // Check if it's AI chat
+      if (toUser === AI_BOT_NAME) {
+        console.log('📱 Loading AI chat history...');
+        apiUrl = `/user/ai-messages?userId=${username}`;
+        response = await axiosInstance.get(apiUrl);
+      } else {
+        console.log('💬 Loading regular chat history...');
+        // Try multiple possible API endpoints that might work with your backend
+        const possibleUrls = [
+          `/user/chat/${username}/${toUser}`,
+          `/user/messages/${username}/${toUser}`,
+          `/user/chat-history/${username}/${toUser}`,
+          `/user/messages?user1=${username}&user2=${toUser}`,
+          `/user/get-messages?senderId=${username}&receiverId=${toUser}`
+        ];
+        
+        let success = false;
+        for (const url of possibleUrls) {
+          try {
+            console.log(`🔍 Trying API endpoint: ${url}`);
+            response = await axiosInstance.get(url);
+            if (response.data && (response.data.success !== false)) {
+              console.log(`✅ Success with endpoint: ${url}`);
+              apiUrl = url;
+              success = true;
+              break;
+            }
+          } catch (err) {
+            console.log(`❌ Failed with endpoint: ${url}`, err.response?.status);
+            continue;
+          }
+        }
+        
+        if (!success) {
+          console.error('❌ All API endpoints failed for regular chat');
+          setMessages([]);
+          return;
+        }
+      }
+      
+      console.log('📦 API Response received:', {
+        status: response.status,
+        dataType: typeof response.data,
+        isArray: Array.isArray(response.data),
+        hasSuccess: 'success' in (response.data || {}),
+        hasMessages: 'messages' in (response.data || {}),
+        hasData: 'data' in (response.data || {}),
+        apiUrl
+      });
+      
+      if (response.data) {
+        let messagesData = [];
+        
+        // Handle different response formats from backend
+        if (Array.isArray(response.data)) {
+          // Direct array of messages
+          messagesData = response.data;
+          console.log('📄 Using direct array format');
+        } else if (response.data.success && Array.isArray(response.data.messages)) {
+          // Success wrapper with messages array
+          messagesData = response.data.messages;
+          console.log('📄 Using success.messages format');
+        } else if (response.data.success && Array.isArray(response.data.data)) {
+          // Success wrapper with data array
+          messagesData = response.data.data;
+          console.log('📄 Using success.data format');
+        } else if (Array.isArray(response.data.messages)) {
+          // Direct messages array without success wrapper
+          messagesData = response.data.messages;
+          console.log('📄 Using messages array format');
+        } else if (Array.isArray(response.data.data)) {
+          // Direct data array
+          messagesData = response.data.data;
+          console.log('📄 Using data array format');
+        } else {
+          console.log('⚠️ Unknown response format:', response.data);
+          setMessages([]);
+          return;
+        }
+        
+        // Validate and clean messages data
+        const validMessages = messagesData.filter(msg => {
+          const hasRequiredFields = msg && 
+            (msg.fromUser || msg.from || msg.sender) && 
+            (msg.toUser || msg.to || msg.receiver) && 
+            (msg.message || msg.text || msg.content);
+          
+          if (!hasRequiredFields) {
+            console.log('⚠️ Invalid message structure:', msg);
+          }
+          return hasRequiredFields;
+        }).map(msg => ({
+          // Normalize message structure
+          _id: msg._id || msg.id,
+          fromUser: msg.fromUser || msg.from || msg.sender,
+          toUser: msg.toUser || msg.to || msg.receiver,
+          message: msg.message || msg.text || msg.content,
+          timestamp: msg.timestamp || msg.timeStamp || msg.createdAt || new Date().toISOString(),
+          messageType: msg.messageType || msg.type,
+          fileInfo: msg.fileInfo,
+          isAiBot: msg.isAiBot || false
+        }));
+        
+        // Sort messages by timestamp to ensure proper order
+        const sortedMessages = validMessages.sort((a, b) => {
+          const timeA = new Date(a.timestamp || 0);
+          const timeB = new Date(b.timestamp || 0);
+          return timeA - timeB;
+        });
+        
+        console.log(`✅ Successfully loaded ${sortedMessages.length} messages for chat with ${toUser}`);
+        console.log('📋 Sample messages:', sortedMessages.slice(0, 3));
+        
+        setMessages(sortedMessages);
+      } else {
+        console.log('📭 No messages found - empty response');
+        setMessages([]);
+      }
+    } catch (error) {
+      console.error("❌ Error loading chat history:", {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+        url: error.config?.url
+      });
+      // Set empty messages array on error to prevent showing old messages
+      setMessages([]);
+    }
+  }, [username, toUser, AI_BOT_NAME]);
+
+  // FIXED: Better timing for loading chat history
+  useEffect(() => {
+    if (username && toUser && isInitialized && isRegistered) {
+      console.log('🎯 useEffect triggered: loading chat history', { 
+        username, 
+        toUser, 
+        isInitialized, 
+        isRegistered 
+      });
+      
+      // Add a small delay to ensure everything is properly initialized
+      const timer = setTimeout(() => {
+        loadChatHistory();
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    } else {
+      console.log('⏸️ Chat history loading skipped:', { 
+        username: !!username, 
+        toUser: !!toUser, 
+        isInitialized, 
+        isRegistered 
+      });
+    }
+  }, [username, toUser, isInitialized, isRegistered, loadChatHistory]);
+
+  // FIXED: Main initialization effect - Better error handling and timing
   useEffect(() => {
     const initializeApp = async () => {
+      console.log('🚀 Initializing app...');
       try {
         const response = await axiosInstance.get("/user/auth/me");
         if (response.data && response.data.name) {
+          console.log('👤 User authenticated:', response.data.name);
           setUsername(response.data.name);
           setIsRegistered(true);
           socket.emit("register-user", response.data.name);
           
           // Load users first
-          await loadAllUsers();
+          console.log('👥 Loading users...');
           
-          // Fetch unread messages after a short delay to ensure everything is loaded
+          // Set initialized to true first
+          setIsInitialized(true);
+          
+          // Then load users and fetch unread messages
           setTimeout(async () => {
-            await fetchUnreadAndLastMessages();
-            setIsInitialized(true);
+            try {
+              await loadAllUsers();
+              await fetchUnreadAndLastMessages();
+              console.log('✅ App initialization completed');
+            } catch (err) {
+              console.error('❌ Error in delayed initialization:', err);
+            }
           }, 500);
           
         } else {
+          console.log('❌ No user data found');
           setUsername("");
           setIsRegistered(false);
           setIsInitialized(true);
         }
       } catch (error) {
-        console.error("Error fetching current user:", error);
+        console.error("❌ Error fetching current user:", error);
         setUsername("");
         setIsRegistered(false);
         setIsInitialized(true);
@@ -158,7 +351,7 @@ const Context = (props) => {
     };
 
     initializeApp();
-  }, [loadAllUsers, fetchUnreadAndLastMessages]);
+  }, []); // Empty dependency array to run only once on mount
 
   // Add AI bot to users list when username is available
   useEffect(() => {
@@ -182,7 +375,7 @@ const Context = (props) => {
   useEffect(() => {
     if (toUser && username && isInitialized) {
       const timer = setTimeout(() => {
-        console.log(`Marking messages as read for selected user: ${toUser}`);
+        console.log(`📖 Marking messages as read for selected user: ${toUser}`);
         markMessagesAsRead(toUser);
       }, 300);
       
@@ -213,7 +406,7 @@ const Context = (props) => {
   // Socket event listeners
   useEffect(() => {
     const handlePrivateMessage = (messageData) => {
-      console.log('Received private message:', messageData);
+      console.log('📨 Received private message:', messageData);
       
       // Add message to state if it doesn't already exist
       setMessages(prev => {
@@ -237,11 +430,11 @@ const Context = (props) => {
           messageData.fromUser !== AI_BOT_NAME &&
           isInitialized) {
         
-        console.log(`Incrementing unread count for ${messageData.fromUser}`);
+        console.log(`📈 Incrementing unread count for ${messageData.fromUser}`);
         
         setUnreadMessages(prev => {
           const newCount = (prev[messageData.fromUser] || 0) + 1;
-          console.log(`New unread count for ${messageData.fromUser}:`, newCount);
+          console.log(`🔢 New unread count for ${messageData.fromUser}:`, newCount);
           return {
             ...prev,
             [messageData.fromUser]: newCount
@@ -359,27 +552,6 @@ const Context = (props) => {
     };
   }, [username, toUser, isInitialized, AI_BOT_NAME]);
 
-  // Load chat history function
-  const loadChatHistory = useCallback(async () => {
-    if (!username || !toUser) return;
-    
-    try {
-      const response = await axiosInstance.get(`/user/messages?senderId=${username}&receiverId=${toUser}`);
-      if (response.data) {
-        setMessages(response.data);
-      }
-    } catch (error) {
-      console.error("Error loading chat history:", error);
-    }
-  }, [username, toUser]);
-
-  // Load chat history when username or toUser changes
-  useEffect(() => {
-    if (username && toUser) {
-      loadChatHistory();
-    }
-  }, [username, toUser, loadChatHistory]);
-
   // Request notification permission
   useEffect(() => {
     if (Notification.permission === 'default') {
@@ -387,7 +559,7 @@ const Context = (props) => {
     }
   }, []);
 
-  // Function to send message to AI
+  // Function to send message to AI - Updated to save messages
   const sendToAI = useCallback(async (userMessage) => {
     try {
       setIsAiTyping(true);
@@ -397,10 +569,14 @@ const Context = (props) => {
         toUser: AI_BOT_NAME,
         message: userMessage,
         timestamp: new Date().toISOString(),
+        isAiBot: false
       };
       
       // Add user message to state immediately
       setMessages(prev => [...safeArrayCheck(prev), userMessageData]);
+
+      // Save user message to database
+      await saveAiMessage(userMessageData);
 
       // Send to AI endpoint
       const response = await axiosInstance.post('/user/askSomething', {
@@ -420,6 +596,9 @@ const Context = (props) => {
         
         // Add AI response to state
         setMessages(prev => [...safeArrayCheck(prev), aiMessage]);
+        
+        // Save AI message to database
+        await saveAiMessage(aiMessage);
         
         // Update last message for AI chat
         setLastMessages(prev => ({
@@ -443,10 +622,25 @@ const Context = (props) => {
         isError: true
       };
       setMessages(prev => [...safeArrayCheck(prev), errorMessage]);
+      
+      // Save error message to database
+      await saveAiMessage(errorMessage);
     } finally {
       setIsAiTyping(false);
     }
-  }, [username, getAiChatHistory, AI_BOT_NAME]);
+  }, [username, getAiChatHistory, AI_BOT_NAME, saveAiMessage]);
+
+  const saveRegularMessage = useCallback(async (messageData) => {
+    try {
+      const response = await axiosInstance.post('/user/save-message', messageData);
+      if (response.data.success) {
+        console.log('Regular message saved successfully');
+        return response.data;
+      }
+    } catch (error) {
+      console.error("Error saving regular message:", error);
+    }
+  }, []);
 
   // Handle send function
   const handleSend = async (e) => {
@@ -467,10 +661,17 @@ const Context = (props) => {
         setMessage(""); // Clear message immediately to prevent double send
         await sendToAI(messageToSend);
       } else {
-        // For regular users, add to state and emit
+        // For regular users, save to DB AND emit via socket
+        setMessage(""); // Clear message immediately
+        
+        // Add to local state first for immediate UI update
         setMessages(prev => [...prev, messageData]);
+        
+        // Save to database
+        await saveRegularMessage(messageData);
+        
+        // Send via socket for real-time delivery
         socket.emit("private-message", messageData);
-        setMessage("");
       }
     } catch (error) {
       console.error("Error sending message:", error);
@@ -595,6 +796,8 @@ const Context = (props) => {
       setUnreadMessages({});
       setLastMessages({});
       setIsInitialized(false);
+      setMessages([]); // Clear messages on logout
+      setToUser(""); // Clear selected user on logout
     }
   };
 
@@ -622,9 +825,13 @@ const Context = (props) => {
     }
   };
 
-  const contextValue = { username, setUsername,isRegistered,setIsRegistered,validateSession,senderId,setSenderId,
-    receiverId,setReceiverId, message, setMessage, messages, setMessages,users,toUser,setToUser, register, login, handleSend,handleFileUpload, logout, socket, messagesEndRef, loadChatHistory, loadAllUsers, getOnlineUsers,
-    unreadMessages,lastMessages,markMessagesAsRead,fetchUnreadAndLastMessages,getUnreadCount,getLastMessage,getTotalUnreadCount, AI_BOT_NAME, isAiTyping, sendToAI, isInitialized, isLoading
+  const contextValue = { 
+   username, setUsername, isRegistered, setIsRegistered, validateSession, senderId, setSenderId,
+  receiverId, setReceiverId, message, setMessage, messages, setMessages, users, toUser, setToUser, 
+  register, login, handleSend, handleFileUpload, logout, socket, messagesEndRef, loadChatHistory, 
+  loadAllUsers, getOnlineUsers, unreadMessages, lastMessages, markMessagesAsRead, 
+  fetchUnreadAndLastMessages, getUnreadCount, getLastMessage, getTotalUnreadCount, 
+  AI_BOT_NAME, isAiTyping, sendToAI, isInitialized, isLoading, saveAiMessage, saveRegularMessage
   };
 
   return (
