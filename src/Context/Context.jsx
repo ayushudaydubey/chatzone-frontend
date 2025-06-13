@@ -4,7 +4,8 @@ import axiosInstance, { fileUploadInstance } from '../utils/axios';
 
 export const chatContext = createContext(null);
 
-const socket = io("http://localhost:3000");
+const socket = io("https://chatzone-backend.onrender.com ");
+
 
 const Context = (props) => {
   const [username, setUsername] = useState("");
@@ -19,11 +20,13 @@ const Context = (props) => {
   const [unreadMessages, setUnreadMessages] = useState({});
   const [lastMessages, setLastMessages] = useState({});
   
-  // AI Bot related state
+
   const [isAiTyping, setIsAiTyping] = useState(false);
   const AI_BOT_NAME = "Elva Ai";
   const messagesEndRef = useRef(null);
   const [isInitialized, setIsInitialized] = useState(false);
+
+
 
   // Helper function to safely check if value is array
   const safeArrayCheck = (arr) => {
