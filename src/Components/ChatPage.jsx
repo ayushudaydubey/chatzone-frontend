@@ -18,8 +18,8 @@ const ChatPage = () => {
   } = useContext(chatContext);
 
   useEffect(() => {
-    setSenderId(username);
-    setReceiverId(toUser);
+
+  
   }, [toUser, username, setSenderId, setReceiverId]);
 
   // Close user list when screen size changes to desktop

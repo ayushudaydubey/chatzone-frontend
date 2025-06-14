@@ -1,7 +1,9 @@
-import React from 'react';
-import { Download, FileText } from 'lucide-react';
+import React, { useState } from 'react';
+import { Download, FileText, ImageIcon } from 'lucide-react';
 
 const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, messagesEndRef, AI_BOT_NAME }) => {
+  const [brokenImages, setBrokenImages] = useState(new Set());
+
   console.log('ChatMessages props:', { 
     messagesCount: messages?.length || 0, 
     username, 
@@ -18,26 +20,72 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const handleImageError = (messageId) => {
+    console.log('Image load error for message:', messageId);
+    setBrokenImages(prev => new Set([...prev, messageId]));
+  };
+
+  const isValidImageUrl = (url) => {
+    if (!url) return false;
+    if (url.startsWith('blob:')) return false;
+    return url.startsWith('http://') || url.startsWith('https://');
+  };
+
   const renderFileMessage = (message) => {
     const { fileInfo } = message;
-    const isImage = fileInfo?.mimeType?.startsWith('image/');
-    const isVideo = fileInfo?.mimeType?.startsWith('video/');
+    const isImage = fileInfo?.fileType?.startsWith('image/') || fileInfo?.mimeType?.startsWith('image/');
+    const isVideo = fileInfo?.fileType?.startsWith('video/') || fileInfo?.mimeType?.startsWith('video/');
+    const messageId = message._id || message.id;
+    const isImageBroken = brokenImages.has(messageId);
+    const fileUrl = fileInfo?.fileUrl || message.message;
 
     if (isImage) {
+      if (!isValidImageUrl(fileUrl) || isImageBroken) {
+        console.log('Rendering placeholder for unavailable image:', { messageId, fileUrl });
+        return (
+          <div className="max-w-xs lg:max-w-sm">
+            <div className="bg-gray-700 rounded-lg p-4 flex flex-col items-center justify-center min-h-[100px] border-2 border-dashed border-gray-600">
+              <ImageIcon size={32} className="text-gray-400 mb-2" />
+              <span className="text-xs text-gray-400 text-center">
+                Image unavailable
+                <br />
+                (File may have been moved or deleted)
+              </span>
+            </div>
+            {fileInfo?.fileName && (
+              <div className="text-xs text-gray-300 mt-2 flex items-center justify-between">
+                <span className="truncate flex-1 mr-2">{fileInfo.fileName}</span>
+                {isValidImageUrl(fileUrl) && (
+                  <a
+                    href={fileUrl}
+                    download
+                    className="flex-shrink-0 p-1 hover:bg-gray-600 rounded transition-colors"
+                    title="Download"
+                  >
+                    <Download size={12} />
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
       return (
         <div className="max-w-xs lg:max-w-sm">
           <img
-            src={message.message}
+            src={fileUrl}
             alt={fileInfo?.fileName || 'Shared image'}
             className="rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
-            onClick={() => window.open(message.message, '_blank')}
+            onClick={() => window.open(fileUrl, '_blank')}
+            onError={() => handleImageError(messageId)}
             loading="lazy"
           />
           {fileInfo?.fileName && (
             <div className="text-xs text-gray-300 mt-2 flex items-center justify-between">
               <span className="truncate flex-1 mr-2">{fileInfo.fileName}</span>
               <a
-                href={message.message}
+                href={fileUrl}
                 download
                 className="flex-shrink-0 p-1 hover:bg-gray-600 rounded transition-colors"
                 title="Download"
@@ -57,8 +105,9 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
             controls
             className="rounded-lg max-w-full h-auto"
             preload="metadata"
+            onError={() => handleImageError(messageId)}
           >
-            <source src={message.message} type={fileInfo?.mimeType} />
+            <source src={fileUrl} type={fileInfo?.fileType || fileInfo?.mimeType} />
             Your browser does not support the video tag.
           </video>
           {fileInfo?.fileName && (
@@ -69,7 +118,7 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
                   <span className="text-gray-400">({formatFileSize(fileInfo.fileSize)})</span>
                 )}
                 <a
-                  href={message.message}
+                  href={fileUrl}
                   download
                   className="p-1 hover:bg-gray-600 rounded transition-colors"
                   title="Download"
@@ -96,54 +145,46 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
             </div>
           )}
         </div>
-        <a
-          href={message.message}
-          download
-          className="p-1 hover:bg-gray-600 rounded transition-colors flex-shrink-0"
-          title="Download"
-        >
-          <Download size={14} />
-        </a>
+        {isValidImageUrl(fileUrl) && (
+          <a
+            href={fileUrl}
+            download
+            className="p-1 hover:bg-gray-600 rounded transition-colors flex-shrink-0"
+            title="Download"
+          >
+            <Download size={14} />
+          </a>
+        )}
       </div>
     );
   };
 
-  // Ensure messages is always an array and handle null/undefined cases
   const safeMessages = Array.isArray(messages) ? messages : [];
   
-  // Filter messages for the current conversation
   const filteredMessages = safeMessages.filter((m) => {
-    // Add comprehensive null checks
     if (!m || typeof m !== 'object') {
       console.warn('Invalid message object:', m);
       return false;
     }
     
-    // Check for required message properties
     if (!m.fromUser || !m.toUser) {
       console.warn('Message missing fromUser or toUser:', m);
       return false;
     }
     
-    // For AI chat conversations
     if (toUser === AI_BOT_NAME) {
-      const isValidAiMessage = (
+      return (
         (m.fromUser === username && m.toUser === AI_BOT_NAME) ||
         (m.fromUser === AI_BOT_NAME && m.toUser === username)
       );
-      return isValidAiMessage;
     }
     
-    // For regular user-to-user conversations
-    const isValidRegularMessage = (
+    return (
       (m.fromUser === username && m.toUser === toUser) ||
       (m.fromUser === toUser && m.toUser === username)
     );
-    
-    return isValidRegularMessage;
   });
 
-  // Sort messages by timestamp to ensure proper chronological order
   const sortedMessages = filteredMessages.sort((a, b) => {
     const timeA = new Date(a.timestamp || a.timeStamp || 0);
     const timeB = new Date(b.timestamp || b.timeStamp || 0);
@@ -160,7 +201,6 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
 
   return (
     <div className="flex-1 px-3 lg:px-6 py-4 space-y-3 pb-32 lg:pb-28 overflow-y-auto bg-zinc-950">
-      {/* Show placeholder when no user is selected */}
       {!toUser && (
         <div className="flex flex-col items-center justify-center h-full text-center px-4">
           <div className="text-6xl lg:text-8xl mb-4 opacity-20">💬</div>
@@ -172,22 +212,16 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
           </p>
         </div>
       )}
-
-      {/* Show messages when user is selected */}
       {toUser && sortedMessages.map((m, i) => {
-        // Get timestamp with fallback options
         const messageTime = m.timestamp || m.timeStamp || new Date().toISOString();
         const isFileMessage = m.messageType === 'file' || m.isFile || false;
         const isOwnMessage = m.fromUser === username;
-        
-        // Get previous message timestamp for date comparison
         const prevMessageTime = i > 0 ? 
           (sortedMessages[i - 1]?.timestamp || sortedMessages[i - 1]?.timeStamp || new Date().toISOString()) : 
           null;
 
         return (
           <div key={m._id || m.id || `msg-${i}-${Date.now()}`} className="flex flex-col">
-            {/* Show date separator when date changes */}
             {(i === 0 || (prevMessageTime && formatDate(messageTime) !== formatDate(prevMessageTime))) && (
               <div className="text-center text-xs text-gray-500 my-3 relative">
                 <div className="absolute inset-0 flex items-center">
@@ -198,22 +232,17 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
                 </div>
               </div>
             )}
-
-            {/* Message bubble */}
             <div className={`px-3 py-3 rounded-2xl mb-1 max-w-[85%] lg:max-w-sm break-words ${
               isOwnMessage
                 ? 'bg-green-800 text-white self-end ml-auto rounded-br-md'
                 : 'bg-green-700/70 text-white self-start mr-auto rounded-bl-md'
             }`}>
               <div className="flex flex-col gap-1">
-                {/* Show sender name for incoming messages */}
                 {!isOwnMessage && (
                   <span className="font-medium text-blue-300 capitalize text-xs lg:text-sm">
                     {m.fromUser}
                   </span>
                 )}
-                
-                {/* Message content */}
                 <div className="flex-1">
                   {isFileMessage ? (
                     <div className="mt-1">
@@ -226,8 +255,6 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
                   )}
                 </div>
               </div>
-              
-              {/* Message timestamp */}
               <div className={`text-xs mt-2 ${
                 isOwnMessage ? 'text-blue-200' : 'text-gray-300'
               } text-right`}>
@@ -237,8 +264,6 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
           </div>
         );
       })}
-
-      {/* Show empty state when no messages exist for selected user */}
       {toUser && sortedMessages.length === 0 && (
         <div className="flex flex-col items-center justify-center h-full text-center px-4">
           <div className="text-4xl lg:text-6xl mb-4 opacity-30">👋</div>
@@ -250,8 +275,6 @@ const ChatMessages = ({ messages, username, toUser, formatTime, formatDate, mess
           </p>
         </div>
       )}
-
-      {/* Scroll anchor for auto-scroll to bottom */}
       <div ref={messagesEndRef} />
     </div>
   );

@@ -4,7 +4,12 @@ import axiosInstance, { fileUploadInstance } from '../utils/axios';
 
 export const chatContext = createContext(null);
 
-const socket = io("https://chatzone-backend.onrender.com ");
+const socket = io(
+  process.env.NODE_ENV === "production"
+    ? "https://chatzone-backend.onrender.com"
+    : "http://localhost:3000"
+);
+
 
 
 const Context = (props) => {
@@ -312,49 +317,39 @@ const Context = (props) => {
 
   // FIXED: Main initialization effect - Better error handling and timing
   useEffect(() => {
-    const initializeApp = async () => {
-      console.log('🚀 Initializing app...');
-      try {
-        const response = await axiosInstance.get("/user/auth/me");
-        if (response.data && response.data.name) {
-          console.log('👤 User authenticated:', response.data.name);
-          setUsername(response.data.name);
-          setIsRegistered(true);
-          socket.emit("register-user", response.data.name);
-          
-          // Load users first
-          console.log('👥 Loading users...');
-          
-          // Set initialized to true first
-          setIsInitialized(true);
-          
-          // Then load users and fetch unread messages
-          setTimeout(async () => {
-            try {
-              await loadAllUsers();
-              await fetchUnreadAndLastMessages();
-              console.log('✅ App initialization completed');
-            } catch (err) {
-              console.error('❌ Error in delayed initialization:', err);
-            }
-          }, 500);
-          
-        } else {
-          console.log('❌ No user data found');
-          setUsername("");
-          setIsRegistered(false);
-          setIsInitialized(true);
-        }
-      } catch (error) {
-        console.error("❌ Error fetching current user:", error);
+  const initializeApp = async () => {
+    console.log('🚀 Initializing app...');
+    try {
+      const response = await axiosInstance.get("/user/auth/me");
+      if (response.data && response.data.name) {
+        console.log('👤 User authenticated:', response.data.name);
+        setUsername(response.data.name);
+        setIsRegistered(true);
+        socket.emit("register-user", response.data.name);
+
+        // ✅ Load users and unread messages BEFORE setting initialized
+        await loadAllUsers();
+        await fetchUnreadAndLastMessages();
+
+        setIsInitialized(true); // ✅ Now safe to mark app as ready
+        console.log('✅ App initialization completed');
+
+      } else {
         setUsername("");
         setIsRegistered(false);
         setIsInitialized(true);
       }
-    };
+    } catch (error) {
+      console.error("❌ Error fetching current user:", error);
+      setUsername("");
+      setIsRegistered(false);
+      setIsInitialized(true);
+    }
+  };
 
-    initializeApp();
-  }, []); // Empty dependency array to run only once on mount
+  initializeApp();
+}, []);
+
 
   // Add AI bot to users list when username is available
   useEffect(() => {
