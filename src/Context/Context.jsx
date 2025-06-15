@@ -10,8 +10,6 @@ const socket = io(
     : "http://localhost:3000"
 );
 
-
-
 const Context = (props) => {
   const [username, setUsername] = useState("");
   const [isRegistered, setIsRegistered] = useState(false);
@@ -24,24 +22,74 @@ const Context = (props) => {
   const [isLoading, setIsLoading] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState({});
   const [lastMessages, setLastMessages] = useState({});
-  
 
   const [isAiTyping, setIsAiTyping] = useState(false);
   const AI_BOT_NAME = "Elva Ai";
   const messagesEndRef = useRef(null);
   const [isInitialized, setIsInitialized] = useState(false);
-
-
+  
+  // ✅ NEW: Ref to track sent messages to prevent duplicates
+  const sentMessagesRef = useRef(new Set());
 
   // Helper function to safely check if value is array
   const safeArrayCheck = (arr) => {
     return Array.isArray(arr) ? arr : [];
   };
 
+  // ✅ ENHANCED: Better duplicate detection with message ID tracking
+  const isDuplicateMessage = (newMessage, existingMessages) => {
+    // Check if message ID exists in sent messages (for immediate duplicates)
+    if (newMessage._id && sentMessagesRef.current.has(newMessage._id)) {
+      return true;
+    }
+
+    return existingMessages.some(existingMsg => {
+      // Check by ID first (most reliable)
+      if (newMessage._id && existingMsg._id && newMessage._id === existingMsg._id) {
+        return true;
+      }
+      
+      // Check by content and timing (for messages without ID)
+      const isSameContent = 
+        existingMsg.fromUser === newMessage.fromUser &&
+        existingMsg.toUser === newMessage.toUser &&
+        existingMsg.message === newMessage.message;
+      
+      // Check if timestamps are within 1 second of each other
+      const timeDiff = Math.abs(
+        new Date(existingMsg.timestamp || 0).getTime() - 
+        new Date(newMessage.timestamp || 0).getTime()
+      );
+      
+      return isSameContent && timeDiff < 1000; // 1 second tolerance
+    });
+  };
+
+  // ✅ ENHANCED: Add message with better duplicate prevention
+  const addMessageToState = useCallback((newMessage) => {
+    setMessages(prev => {
+      const currentMessages = safeArrayCheck(prev);
+      
+      // Check for duplicates
+      if (isDuplicateMessage(newMessage, currentMessages)) {
+        console.log('🚫 Duplicate message detected, skipping:', newMessage._id);
+        return prev;
+      }
+      
+      // Add message ID to sent messages tracking
+      if (newMessage._id) {
+        sentMessagesRef.current.add(newMessage._id);
+      }
+      
+      console.log('✅ Adding new message to state:', newMessage._id);
+      return [...currentMessages, newMessage];
+    });
+  }, []);
+
   // Get AI chat history for context
   const getAiChatHistory = () => {
     return messages
-      .filter(msg => 
+      .filter(msg =>
         (msg.fromUser === username && msg.toUser === AI_BOT_NAME) ||
         (msg.fromUser === AI_BOT_NAME && msg.toUser === username)
       )
@@ -70,56 +118,63 @@ const Context = (props) => {
     }
   }, []);
 
-  // Function to fetch unread messages and last messages from database
+  // Enhanced function to fetch unread messages and last messages
   const fetchUnreadAndLastMessages = useCallback(async () => {
     if (!username) return;
-    
+
     try {
-      console.log('Fetching unread messages for:', username);
-      
+      console.log('🔄 Fetching unread messages for:', username);
+
       const response = await axiosInstance.get('/user/unread-messages', {
-        params: { username } 
+        params: { username }
       });
-      
+
       if (response.data.success) {
         const newUnreadMessages = response.data.unreadCounts || {};
         const newLastMessages = response.data.lastMessages || {};
-        
+
+        console.log('📊 Received unread counts from server:', newUnreadMessages);
+        console.log('📨 Received last messages from server:', newLastMessages);
+
         setUnreadMessages(newUnreadMessages);
         setLastMessages(newLastMessages);
-        
-        console.log('Updated unread messages state:', newUnreadMessages);
+
+        return { unreadMessages: newUnreadMessages, lastMessages: newLastMessages };
       }
     } catch (error) {
-      console.error("Error fetching unread messages:", error);
+      console.error("❌ Error fetching unread messages:", error);
     }
   }, [username]);
 
-  // Function to mark messages as read
+  // Enhanced function to mark messages as read
   const markMessagesAsRead = useCallback(async (selectedUser) => {
     if (!selectedUser || !username) return;
-    
+
     try {
-      console.log(`Marking messages as read from: ${selectedUser}`);
-      
-      // API call to mark messages as read
-      await axiosInstance.post('/user/mark-read', {
+      console.log(`📖 Marking messages as read from: ${selectedUser}`);
+
+      const response = await axiosInstance.post('/user/mark-read', {
         senderId: selectedUser,
         receiverId: username
       });
-      
-      // Immediately update local state to remove unread count for this user
-      setUnreadMessages(prev => {
-        const updated = { ...prev };
-        delete updated[selectedUser];
-        console.log(`Removed unread count for: ${selectedUser}`, updated);
-        return updated;
-      });
-      
+
+      if (response.data.success) {
+        console.log(`✅ Successfully marked messages as read from: ${selectedUser}`);
+
+        setUnreadMessages(prev => {
+          const updated = { ...prev };
+          delete updated[selectedUser];
+          return updated;
+        });
+
+        setTimeout(() => {
+          fetchUnreadAndLastMessages();
+        }, 500);
+      }
     } catch (error) {
-      console.error("Error marking messages as read:", error);
+      console.error("❌ Error marking messages as read:", error);
     }
-  }, [username]);
+  }, [username, fetchUnreadAndLastMessages]);
 
   // Function to load all registered users
   const loadAllUsers = useCallback(async () => {
@@ -133,7 +188,7 @@ const Context = (props) => {
             isOnline: false,
             lastSeen: null
           }));
-        
+
         // Add AI Friend at the top of the list
         const usersWithAI = [
           { username: AI_BOT_NAME, isOnline: true, isAiBot: true },
@@ -146,19 +201,19 @@ const Context = (props) => {
     }
   }, [username, AI_BOT_NAME]);
 
-  // FIXED: Improved load chat history function with better error handling and debugging
+  // ✅ IMPROVED: Load chat history with better duplicate prevention
   const loadChatHistory = useCallback(async () => {
     if (!username || !toUser) {
-      console.log('Cannot load chat history: missing username or toUser', { username, toUser });
+      console.log('Cannot load chat history: missing username or toUser');
       return;
     }
-    
+
     console.log(`🔄 Loading chat history between ${username} and ${toUser}`);
-    
+
     try {
       let response;
       let apiUrl;
-      
+
       // Check if it's AI chat
       if (toUser === AI_BOT_NAME) {
         console.log('📱 Loading AI chat history...');
@@ -166,15 +221,14 @@ const Context = (props) => {
         response = await axiosInstance.get(apiUrl);
       } else {
         console.log('💬 Loading regular chat history...');
-        // Try multiple possible API endpoints that might work with your backend
+
         const possibleUrls = [
+          `/user/messages?senderId=${username}&receiverId=${toUser}`,
           `/user/chat/${username}/${toUser}`,
-          `/user/messages/${username}/${toUser}`,
           `/user/chat-history/${username}/${toUser}`,
-          `/user/messages?user1=${username}&user2=${toUser}`,
           `/user/get-messages?senderId=${username}&receiverId=${toUser}`
         ];
-        
+
         let success = false;
         for (const url of possibleUrls) {
           try {
@@ -191,167 +245,179 @@ const Context = (props) => {
             continue;
           }
         }
-        
+
         if (!success) {
           console.error('❌ All API endpoints failed for regular chat');
           setMessages([]);
           return;
         }
       }
-      
-      console.log('📦 API Response received:', {
-        status: response.status,
-        dataType: typeof response.data,
-        isArray: Array.isArray(response.data),
-        hasSuccess: 'success' in (response.data || {}),
-        hasMessages: 'messages' in (response.data || {}),
-        hasData: 'data' in (response.data || {}),
-        apiUrl
-      });
-      
+
       if (response.data) {
         let messagesData = [];
-        
-        // Handle different response formats from backend
+
+        // Handle different response formats
         if (Array.isArray(response.data)) {
-          // Direct array of messages
           messagesData = response.data;
-          console.log('📄 Using direct array format');
         } else if (response.data.success && Array.isArray(response.data.messages)) {
-          // Success wrapper with messages array
           messagesData = response.data.messages;
-          console.log('📄 Using success.messages format');
         } else if (response.data.success && Array.isArray(response.data.data)) {
-          // Success wrapper with data array
           messagesData = response.data.data;
-          console.log('📄 Using success.data format');
         } else if (Array.isArray(response.data.messages)) {
-          // Direct messages array without success wrapper
           messagesData = response.data.messages;
-          console.log('📄 Using messages array format');
         } else if (Array.isArray(response.data.data)) {
-          // Direct data array
           messagesData = response.data.data;
-          console.log('📄 Using data array format');
         } else {
           console.log('⚠️ Unknown response format:', response.data);
           setMessages([]);
           return;
         }
-        
-        // Validate and clean messages data
+
+        // ✅ ENHANCED: Better duplicate removal with unique ID tracking
+        const seenMessages = new Map(); // Use Map instead of Set for better tracking
         const validMessages = messagesData.filter(msg => {
-          const hasRequiredFields = msg && 
-            (msg.fromUser || msg.from || msg.sender) && 
-            (msg.toUser || msg.to || msg.receiver) && 
+          const hasRequiredFields = msg &&
+            (msg.fromUser || msg.from || msg.sender) &&
+            (msg.toUser || msg.to || msg.receiver) &&
             (msg.message || msg.text || msg.content);
-          
+
           if (!hasRequiredFields) {
-            console.log('⚠️ Invalid message structure:', msg);
+            return false;
           }
-          return hasRequiredFields;
-        }).map(msg => ({
+
+          // Create unique identifier
+          const messageId = msg._id || msg.id;
+          const contentHash = `${msg.fromUser || msg.from || msg.sender}-${msg.toUser || msg.to || msg.receiver}-${msg.message || msg.text || msg.content}-${msg.timestamp || msg.timeStamp || msg.createdAt}`;
+          
+          // Check for duplicates using ID first, then content hash
+          if (messageId) {
+            if (seenMessages.has(messageId)) {
+              console.log('🚫 Duplicate message by ID:', messageId);
+              return false;
+            }
+            seenMessages.set(messageId, true);
+          } else {
+            if (seenMessages.has(contentHash)) {
+              console.log('🚫 Duplicate message by content hash');
+              return false;
+            }
+            seenMessages.set(contentHash, true);
+          }
+          
+          return true;
+        }).map(msg => {
           // Normalize message structure
-          _id: msg._id || msg.id,
-          fromUser: msg.fromUser || msg.from || msg.sender,
-          toUser: msg.toUser || msg.to || msg.receiver,
-          message: msg.message || msg.text || msg.content,
-          timestamp: msg.timestamp || msg.timeStamp || msg.createdAt || new Date().toISOString(),
-          messageType: msg.messageType || msg.type,
-          fileInfo: msg.fileInfo,
-          isAiBot: msg.isAiBot || false
-        }));
-        
-        // Sort messages by timestamp to ensure proper order
+          const normalizedMsg = {
+            _id: msg._id || msg.id || `${Date.now()}-${Math.random()}`,
+            fromUser: msg.fromUser || msg.from || msg.sender,
+            toUser: msg.toUser || msg.to || msg.receiver,
+            message: msg.message || msg.text || msg.content,
+            timestamp: msg.timestamp || msg.timeStamp || msg.createdAt || new Date().toISOString(),
+            messageType: msg.messageType || msg.type || 'text',
+            isAiBot: msg.isAiBot || false
+          };
+
+          // Preserve fileInfo for file messages
+          if (msg.messageType === 'file' || msg.type === 'file') {
+            normalizedMsg.messageType = 'file';
+            normalizedMsg.fileInfo = msg.fileInfo || {
+              fileName: 'Unknown File',
+              fileSize: 0,
+              mimeType: 'application/octet-stream'
+            };
+          }
+
+          return normalizedMsg;
+        });
+
+        // Sort messages by timestamp
         const sortedMessages = validMessages.sort((a, b) => {
           const timeA = new Date(a.timestamp || 0);
           const timeB = new Date(b.timestamp || 0);
           return timeA - timeB;
         });
-        
+
         console.log(`✅ Successfully loaded ${sortedMessages.length} messages for chat with ${toUser}`);
-        console.log('📋 Sample messages:', sortedMessages.slice(0, 3));
-        
+
+        // ✅ CRITICAL: Clear sent messages tracking and replace messages completely
+        sentMessagesRef.current.clear();
         setMessages(sortedMessages);
+        
+        // Add loaded message IDs to tracking to prevent duplicates
+        sortedMessages.forEach(msg => {
+          if (msg._id) {
+            sentMessagesRef.current.add(msg._id);
+          }
+        });
       } else {
         console.log('📭 No messages found - empty response');
         setMessages([]);
       }
     } catch (error) {
-      console.error("❌ Error loading chat history:", {
-        message: error.message,
-        status: error.response?.status,
-        data: error.response?.data,
-        url: error.config?.url
-      });
-      // Set empty messages array on error to prevent showing old messages
+      console.error("❌ Error loading chat history:", error);
       setMessages([]);
     }
   }, [username, toUser, AI_BOT_NAME]);
 
-  // FIXED: Better timing for loading chat history
+  // Better timing for loading chat history
   useEffect(() => {
     if (username && toUser && isInitialized && isRegistered) {
-      console.log('🎯 useEffect triggered: loading chat history', { 
-        username, 
-        toUser, 
-        isInitialized, 
-        isRegistered 
-      });
-      
-      // Add a small delay to ensure everything is properly initialized
+      console.log('🎯 Loading chat history for:', { username, toUser });
+
       const timer = setTimeout(() => {
         loadChatHistory();
       }, 100);
-      
+
       return () => clearTimeout(timer);
-    } else {
-      console.log('⏸️ Chat history loading skipped:', { 
-        username: !!username, 
-        toUser: !!toUser, 
-        isInitialized, 
-        isRegistered 
-      });
     }
   }, [username, toUser, isInitialized, isRegistered, loadChatHistory]);
 
-  // FIXED: Main initialization effect - Better error handling and timing
+  // Main initialization effect
   useEffect(() => {
-  const initializeApp = async () => {
-    console.log('🚀 Initializing app...');
-    try {
-      const response = await axiosInstance.get("/user/auth/me");
-      if (response.data && response.data.name) {
-        console.log('👤 User authenticated:', response.data.name);
-        setUsername(response.data.name);
-        setIsRegistered(true);
-        socket.emit("register-user", response.data.name);
+    const initializeApp = async () => {
+      console.log('🚀 Initializing app...');
+      try {
+        const response = await axiosInstance.get("/user/auth/me");
+        if (response.data && response.data.name) {
+          console.log('👤 User authenticated:', response.data.name);
+          setUsername(response.data.name);
+          setIsRegistered(true);
+          socket.emit("register-user", response.data.name);
 
-        // ✅ Load users and unread messages BEFORE setting initialized
-        await loadAllUsers();
-        await fetchUnreadAndLastMessages();
+          await loadAllUsers();
+          const unreadData = await fetchUnreadAndLastMessages();
 
-        setIsInitialized(true); // ✅ Now safe to mark app as ready
-        console.log('✅ App initialization completed');
-
-      } else {
+          setIsInitialized(true);
+          console.log('✅ App initialization completed');
+        } else {
+          setUsername("");
+          setIsRegistered(false);
+          setIsInitialized(true);
+        }
+      } catch (error) {
+        console.error("❌ Error fetching current user:", error);
         setUsername("");
         setIsRegistered(false);
         setIsInitialized(true);
       }
-    } catch (error) {
-      console.error("❌ Error fetching current user:", error);
-      setUsername("");
-      setIsRegistered(false);
-      setIsInitialized(true);
+    };
+
+    initializeApp();
+  }, [loadAllUsers, fetchUnreadAndLastMessages]);
+
+  // Periodic sync for unread messages
+  useEffect(() => {
+    if (username && isInitialized && isRegistered) {
+      const syncInterval = setInterval(() => {
+        console.log('🔄 Periodic sync: Fetching unread messages...');
+        fetchUnreadAndLastMessages();
+      }, 30000); // 30 seconds
+
+      return () => clearInterval(syncInterval);
     }
-  };
+  }, [username, isInitialized, isRegistered, fetchUnreadAndLastMessages]);
 
-  initializeApp();
-}, []);
-
-
-  // Add AI bot to users list when username is available
+  // Add AI bot to users list
   useEffect(() => {
     if (username) {
       setUsers(prev => {
@@ -373,15 +439,15 @@ const Context = (props) => {
   useEffect(() => {
     if (toUser && username && isInitialized) {
       const timer = setTimeout(() => {
-        console.log(`📖 Marking messages as read for selected user: ${toUser}`);
+        console.log(`📖 Marking messages as read for: ${toUser}`);
         markMessagesAsRead(toUser);
       }, 300);
-      
+
       return () => clearTimeout(timer);
     }
   }, [toUser, username, isInitialized, markMessagesAsRead]);
 
-  // Helper functions for unread messages and last messages
+  // Helper functions
   const getUnreadCount = (fromUser) => {
     return unreadMessages[fromUser] || 0;
   };
@@ -401,75 +467,31 @@ const Context = (props) => {
     return Object.values(unreadMessages).reduce((total, count) => total + count, 0);
   };
 
-  // Socket event listeners
+  // ✅ CRITICAL FIX: Enhanced socket event listeners
   useEffect(() => {
-    const handlePrivateMessage = (messageData) => {
-      console.log('📨 Received private message:', messageData);
-      
-      // Add message to state if it doesn't already exist
-      setMessages(prev => {
-        const exists = prev.some(msg =>
-          msg.fromUser === messageData.fromUser &&
-          msg.toUser === messageData.toUser &&
-          msg.message === messageData.message &&
-          Math.abs(new Date(msg.timestamp) - new Date(messageData.timestamp)) < 1000
-        );
-        if (!exists) {
-          return [...prev, messageData];
-        }
-        return prev;
-      });
+ const handlePrivateMessage = (messageData) => {
+  console.log('📨 Received private message:', messageData);
 
-      // Update unread messages count - ONLY for incoming messages from OTHER users
-      // and ONLY if the sender is not the currently selected user
-      if (messageData.fromUser !== username && 
-          messageData.toUser === username && 
-          messageData.fromUser !== toUser && 
-          messageData.fromUser !== AI_BOT_NAME &&
-          isInitialized) {
-        
-        console.log(`📈 Incrementing unread count for ${messageData.fromUser}`);
-        
-        setUnreadMessages(prev => {
-          const newCount = (prev[messageData.fromUser] || 0) + 1;
-          console.log(`🔢 New unread count for ${messageData.fromUser}:`, newCount);
-          return {
-            ...prev,
-            [messageData.fromUser]: newCount
-          };
-        });
-        
-        // Show notification only for unread messages
-        if (Notification.permission === 'granted') {
-          new Notification(`New message from ${messageData.fromUser}`, {
-            body: messageData.isFile || messageData.messageType === 'file' ? '📎 Sent a file' : messageData.message,
-            icon: '/favicon.ico'
-          });
-        }
-      }
-
-      // Update last messages for all conversations
-      if (messageData.fromUser !== username && messageData.toUser === username) {
-        setLastMessages(prev => ({
-          ...prev,
-          [messageData.fromUser]: {
-            message: messageData.message,
-            timestamp: messageData.timestamp,
-            isFile: messageData.isFile || messageData.messageType === 'file'
-          }
-        }));
-      }
-      if (messageData.fromUser === username && messageData.toUser !== username) {
-        setLastMessages(prev => ({
-          ...prev,
-          [messageData.toUser]: {
-            message: messageData.message,
-            timestamp: messageData.timestamp,
-            isFile: messageData.isFile || messageData.messageType === 'file'
-          }
-        }));
-      }
-    };
+  if (messageData.toUser === username && messageData.fromUser !== username) {
+    console.log('✅ Processing incoming message');
+    
+    if (!messageData._id) {
+      messageData._id = `received-${Date.now()}-${Math.random()}`;
+    }
+    
+    // ✅ Ensure file messages have proper structure
+    if (messageData.messageType === 'file' && !messageData.fileInfo) {
+      messageData.fileInfo = {
+        fileName: 'Unknown File',
+        fileSize: 0,
+        mimeType: 'application/octet-stream'
+      };
+    }
+    
+    addMessageToState(messageData);
+    // ... rest of the function
+  }
+};
 
     const handleUpdateUsers = (usersWithStatus) => {
       if (Array.isArray(usersWithStatus)) {
@@ -492,8 +514,7 @@ const Context = (props) => {
               };
             }
           });
-        
-        // Add AI Friend to the filtered users list
+
         const usersWithAI = [
           { username: AI_BOT_NAME, isOnline: true, isAiBot: true },
           ...filteredUsers
@@ -520,7 +541,7 @@ const Context = (props) => {
           const userName = typeof user === 'object' ? user.username : user;
           return userName === connectedUser;
         });
-        
+
         if (existingUserIndex !== -1) {
           const updatedUsers = [...prev];
           updatedUsers[existingUserIndex] = typeof prev[existingUserIndex] === 'object' ?
@@ -548,7 +569,7 @@ const Context = (props) => {
       socket.off("user-disconnected", handleUserDisconnected);
       socket.off("user-connected", handleUserConnected);
     };
-  }, [username, toUser, isInitialized, AI_BOT_NAME]);
+  }, [username, toUser, isInitialized, AI_BOT_NAME, addMessageToState]);
 
   // Request notification permission
   useEffect(() => {
@@ -557,21 +578,22 @@ const Context = (props) => {
     }
   }, []);
 
-  // Function to send message to AI - Updated to save messages
+  // Function to send message to AI
   const sendToAI = useCallback(async (userMessage) => {
     try {
       setIsAiTyping(true);
-      
+
       const userMessageData = {
+        _id: `user-ai-${Date.now()}-${Math.random()}`,
         fromUser: username,
         toUser: AI_BOT_NAME,
         message: userMessage,
         timestamp: new Date().toISOString(),
         isAiBot: false
       };
-      
-      // Add user message to state immediately
-      setMessages(prev => [...safeArrayCheck(prev), userMessageData]);
+
+      // Add user message to state
+      addMessageToState(userMessageData);
 
       // Save user message to database
       await saveAiMessage(userMessageData);
@@ -585,20 +607,21 @@ const Context = (props) => {
 
       if (response.data.success) {
         const aiMessage = {
+          _id: `ai-response-${Date.now()}-${Math.random()}`,
           fromUser: AI_BOT_NAME,
           toUser: username,
           message: response.data.response,
           timestamp: new Date().toISOString(),
           isAiBot: true,
         };
-        
+
         // Add AI response to state
-        setMessages(prev => [...safeArrayCheck(prev), aiMessage]);
-        
+        addMessageToState(aiMessage);
+
         // Save AI message to database
         await saveAiMessage(aiMessage);
-        
-        // Update last message for AI chat
+
+        // Update last message
         setLastMessages(prev => ({
           ...prev,
           [AI_BOT_NAME]: {
@@ -610,8 +633,8 @@ const Context = (props) => {
       }
     } catch (error) {
       console.error("Error sending message to AI:", error);
-      // Add error message to chat
       const errorMessage = {
+        _id: `error-ai-${Date.now()}-${Math.random()}`,
         fromUser: AI_BOT_NAME,
         toUser: username,
         message: "Sorry, I'm having trouble responding right now. Please try again.",
@@ -619,14 +642,12 @@ const Context = (props) => {
         isAiBot: true,
         isError: true
       };
-      setMessages(prev => [...safeArrayCheck(prev), errorMessage]);
-      
-      // Save error message to database
+      addMessageToState(errorMessage);
       await saveAiMessage(errorMessage);
     } finally {
       setIsAiTyping(false);
     }
-  }, [username, getAiChatHistory, AI_BOT_NAME, saveAiMessage]);
+  }, [username, getAiChatHistory, AI_BOT_NAME, saveAiMessage, addMessageToState]);
 
   const saveRegularMessage = useCallback(async (messageData) => {
     try {
@@ -640,36 +661,48 @@ const Context = (props) => {
     }
   }, []);
 
-  // Handle send function
+  // ✅ CRITICAL FIX: Enhanced handleSend function
   const handleSend = async (e) => {
     e.preventDefault();
     if (!message.trim() || !toUser) return;
+
+    // ✅ IMPORTANT: Generate unique ID for sent message
+    const messageId = `sent-${Date.now()}-${Math.random()}-${username}`;
     
     const messageData = {
+      _id: messageId,
       fromUser: username,
       toUser: toUser,
       message: message.trim(),
       timestamp: new Date().toISOString()
     };
-    
+
     try {
       if (toUser === AI_BOT_NAME) {
-        // For AI, use the sendToAI function and clear message immediately
         const messageToSend = message.trim();
-        setMessage(""); // Clear message immediately to prevent double send
+        setMessage("");
         await sendToAI(messageToSend);
       } else {
-        // For regular users, save to DB AND emit via socket
-        setMessage(""); // Clear message immediately
-        
-        // Add to local state first for immediate UI update
-        setMessages(prev => [...prev, messageData]);
-        
+        setMessage("");
+
+        // ✅ CRITICAL: Add to state immediately for sender
+        addMessageToState(messageData);
+
         // Save to database
         await saveRegularMessage(messageData);
-        
-        // Send via socket for real-time delivery
+
+        // ✅ IMPORTANT: Emit with unique ID
         socket.emit("private-message", messageData);
+
+        // Update last message
+        setLastMessages(prev => ({
+          ...prev,
+          [toUser]: {
+            message: messageData.message,
+            timestamp: messageData.timestamp,
+            isFile: false
+          }
+        }));
       }
     } catch (error) {
       console.error("Error sending message:", error);
@@ -687,12 +720,12 @@ const Context = (props) => {
     if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
       throw new Error('Only image and video files are allowed');
     }
-    
+
     const formData = new FormData();
     formData.append('file', file);
     formData.append('senderId', username);
     formData.append('receiverId', toUser);
-    
+
     try {
       const response = await fileUploadInstance.post('/user/upload-file', formData, {
         headers: {
@@ -704,9 +737,9 @@ const Context = (props) => {
             onProgress(percentCompleted);
           }
         },
-        timeout: 300000,
+        timeout: 30000,
       });
-      
+
       if (response.data.success) {
         return response.data;
       } else {
@@ -724,6 +757,81 @@ const Context = (props) => {
       }
     }
   };
+  // Add this function after handleFileUpload
+const handleFileSend = async (file, onProgress) => {
+  if (!toUser) {
+    throw new Error('No recipient selected');
+  }
+
+  try {
+    // Create immediate file message for sender's UI
+    const fileMessageId = `file-${Date.now()}-${Math.random()}-${username}`;
+    const fileMessageData = {
+      _id: fileMessageId,
+      fromUser: username,
+      toUser: toUser,
+      message: `📎 ${file.name}`,
+      messageType: 'file',
+      timestamp: new Date().toISOString(),
+      fileInfo: {
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type
+      },
+      isUploading: true // Add flag to show uploading state
+    };
+
+    // ✅ CRITICAL: Add file message to state immediately
+    addMessageToState(fileMessageData);
+
+    // Upload file
+    const uploadResponse = await handleFileUpload(file, onProgress);
+
+    if (uploadResponse.success) {
+      // Update the message with upload success
+      setMessages(prev => 
+        prev.map(msg => 
+          msg._id === fileMessageId 
+            ? { 
+                ...msg, 
+                isUploading: false,
+                fileUrl: uploadResponse.fileUrl,
+                message: uploadResponse.message || `📎 ${file.name}`
+              }
+            : msg
+        )
+      );
+
+      // Emit to socket for receiver
+      const finalFileMessage = {
+        ...fileMessageData,
+        isUploading: false,
+        fileUrl: uploadResponse.fileUrl,
+        message: uploadResponse.message || `📎 ${file.name}`
+      };
+
+      if (toUser !== AI_BOT_NAME) {
+        socket.emit("private-message", finalFileMessage);
+      }
+
+      // Update last message
+      setLastMessages(prev => ({
+        ...prev,
+        [toUser]: {
+          message: `📎 ${file.name}`,
+          timestamp: fileMessageData.timestamp,
+          isFile: true
+        }
+      }));
+
+      return uploadResponse;
+    }
+  } catch (error) {
+    // Remove the uploading message on error
+    setMessages(prev => prev.filter(msg => msg._id !== fileMessageId));
+    throw error;
+  }
+};
 
   // Registration function
   const register = async (userData) => {
@@ -794,11 +902,12 @@ const Context = (props) => {
       setUnreadMessages({});
       setLastMessages({});
       setIsInitialized(false);
-      setMessages([]); // Clear messages on logout
-      setToUser(""); // Clear selected user on logout
+      setMessages([]);
+      setToUser("");
+      // ✅ Clear sent messages tracking on logout
+      sentMessagesRef.current.clear();
     }
   };
-
   // Session validation function
   const validateSession = async () => {
     try {
@@ -823,14 +932,62 @@ const Context = (props) => {
     }
   };
 
-  const contextValue = { 
-   username, setUsername, isRegistered, setIsRegistered, validateSession, senderId, setSenderId,
-  receiverId, setReceiverId, message, setMessage, messages, setMessages, users, toUser, setToUser, 
-  register, login, handleSend, handleFileUpload, logout, socket, messagesEndRef, loadChatHistory, 
-  loadAllUsers, getOnlineUsers, unreadMessages, lastMessages, markMessagesAsRead, 
-  fetchUnreadAndLastMessages, getUnreadCount, getLastMessage, getTotalUnreadCount, 
-  AI_BOT_NAME, isAiTyping, sendToAI, isInitialized, isLoading, saveAiMessage, saveRegularMessage
-  };
+const contextValue = {
+  // User state
+  username, 
+  setUsername, 
+  isRegistered, 
+  setIsRegistered, 
+  senderId, 
+  setSenderId,
+  receiverId, 
+  setReceiverId, 
+  isInitialized, 
+  isLoading,
+
+  // Message state
+  message, 
+  setMessage, 
+  messages, 
+  setMessages,
+  messagesEndRef,
+
+  // Users and chat
+  users, 
+  toUser, 
+  setToUser,
+  getOnlineUsers,
+
+  // Unread messages and notifications
+  unreadMessages, 
+  lastMessages, 
+  markMessagesAsRead,
+  fetchUnreadAndLastMessages, 
+  getUnreadCount, 
+  getLastMessage, 
+  getTotalUnreadCount,
+
+  // Authentication functions
+  register, 
+  login, 
+  logout,
+  validateSession,
+
+  // Message functions
+  handleSend, 
+  handleFileUpload,
+  loadChatHistory,
+   handleFileSend,
+  loadAllUsers,
+  saveAiMessage, 
+  saveRegularMessage,
+  // AI Bot features
+  AI_BOT_NAME, 
+  isAiTyping, 
+  sendToAI,
+  // Socket connection
+  socket
+};
 
   return (
     <chatContext.Provider value={contextValue}>
