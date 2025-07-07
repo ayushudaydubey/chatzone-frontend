@@ -472,24 +472,50 @@ const Context = (props) => {
  const handlePrivateMessage = (messageData) => {
   console.log('📨 Received private message:', messageData);
 
+  // Only process if it's for this user and not sent by self
   if (messageData.toUser === username && messageData.fromUser !== username) {
-    console.log('✅ Processing incoming message');
-    
-    if (!messageData._id) {
-      messageData._id = `received-${Date.now()}-${Math.random()}`;
-    }
-    
-    // ✅ Ensure file messages have proper structure
-    if (messageData.messageType === 'file' && !messageData.fileInfo) {
-      messageData.fileInfo = {
+    // Normalize message structure for duplicate check
+    const normalizedMsg = {
+      ...messageData,
+      _id: messageData._id || `received-${Date.now()}-${Math.random()}`,
+      fromUser: messageData.fromUser,
+      toUser: messageData.toUser,
+      message: messageData.message,
+      timestamp: messageData.timestamp || new Date().toISOString(),
+      messageType: messageData.messageType || 'text'
+    };
+
+    // Ensure file messages have proper structure
+    if (normalizedMsg.messageType === 'file' && !normalizedMsg.fileInfo) {
+      normalizedMsg.fileInfo = {
         fileName: 'Unknown File',
         fileSize: 0,
         mimeType: 'application/octet-stream'
       };
     }
-    
-    addMessageToState(messageData);
-    // ... rest of the function
+
+    // Check for duplicate before adding
+    setMessages(prev => {
+      const isDuplicate = prev.some(
+        msg =>
+          (msg._id && normalizedMsg._id && msg._id === normalizedMsg._id) ||
+          (
+            msg.fromUser === normalizedMsg.fromUser &&
+            msg.toUser === normalizedMsg.toUser &&
+            msg.message === normalizedMsg.message &&
+            Math.abs(new Date(msg.timestamp).getTime() - new Date(normalizedMsg.timestamp).getTime()) < 1000
+          )
+      );
+      if (isDuplicate) {
+        console.log('🚫 Duplicate message detected from socket, skipping:', normalizedMsg._id);
+        return prev;
+      }
+      // Add to sentMessagesRef for future duplicate prevention
+      if (normalizedMsg._id) {
+        sentMessagesRef.current.add(normalizedMsg._id);
+      }
+      return [...prev, normalizedMsg];
+    });
   }
 };
 
@@ -569,7 +595,7 @@ const Context = (props) => {
       socket.off("user-disconnected", handleUserDisconnected);
       socket.off("user-connected", handleUserConnected);
     };
-  }, [username, toUser, isInitialized, AI_BOT_NAME, addMessageToState]);
+  }, [username, toUser, isInitialized, AI_BOT_NAME]);
 
   // Request notification permission
   useEffect(() => {
@@ -788,7 +814,6 @@ const handleFileSend = async (file, onProgress) => {
     const uploadResponse = await handleFileUpload(file, onProgress);
 
     if (uploadResponse.success) {
-      // Update the message with upload success
       setMessages(prev => 
         prev.map(msg => 
           msg._id === fileMessageId 
@@ -796,7 +821,12 @@ const handleFileSend = async (file, onProgress) => {
                 ...msg, 
                 isUploading: false,
                 fileUrl: uploadResponse.fileUrl,
-                message: uploadResponse.message || `📎 ${file.name}`
+            
+                message: uploadResponse.fileUrl, 
+                fileInfo: {
+                  ...msg.fileInfo,
+                  fileUrl: uploadResponse.fileUrl
+                }
               }
             : msg
         )
@@ -807,7 +837,7 @@ const handleFileSend = async (file, onProgress) => {
         ...fileMessageData,
         isUploading: false,
         fileUrl: uploadResponse.fileUrl,
-        message: uploadResponse.message || `📎 ${file.name}`
+        message: uploadResponse.fileUrl // Sirf file ka URL
       };
 
       if (toUser !== AI_BOT_NAME) {

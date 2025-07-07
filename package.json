@@ -15,6 +15,7 @@
     "axios": "^1.9.0",
     "cors": "^2.8.5",
     "jwt-decode": "^4.0.0",
+    "lodash.debounce": "^4.0.8",
     "lucide-react": "^0.511.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

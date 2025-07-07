@@ -1,5 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useContext } from 'react';
 import { Paperclip, Send } from 'lucide-react';
+import { chatContext } from '../Context/Context'; // Adjust the import based on your file structure
 
 const ChatBox = ({
   handleSend,
@@ -9,10 +10,10 @@ const ChatBox = ({
   isAiTyping,
   AI_BOT_NAME,
   users,
-  handleFileUpload,
   messages = [],
   username
 }) => {
+  const { handleFileSend } = useContext(chatContext);
   const fileInputRef = useRef(null);
   const formRef = useRef(null);
   const inputRef = useRef(null);
@@ -43,7 +44,7 @@ const ChatBox = ({
     setIsUploading(true);
 
     try {
-      await handleFileUpload(file, (progress) => setUploadProgress(progress));
+      await handleFileSend(file, (progress) => setUploadProgress(progress));
       setUploadProgress(100);
       setTimeout(() => setUploadProgress(0), 2000);
     } catch (error) {

@@ -124,7 +124,15 @@ const ChatMessages = ({
     const { fileInfo } = message;
     const messageId = message._id || message.id || message.tempId;
     const isImageBroken = brokenImages.has(messageId);
-    const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || message.message;
+const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || message.message;
+// If message contains imagekit URL but no fileInfo, treat as file
+if (!fileInfo && message.message && message.message.includes('imagekit.io')) {
+  message.fileInfo = {
+    fileName: 'Uploaded Image',
+    fileUrl: message.message,
+    mimeType: 'image/jpeg'
+  };
+}
     const fileName = fileInfo?.fileName || fileInfo?.name || 'Unknown File';
     const fileSize = fileInfo?.fileSize || fileInfo?.size;
     const mimeType = fileInfo?.fileType || fileInfo?.mimeType;
@@ -284,27 +292,21 @@ const ChatMessages = ({
 
   // Combine all messages (sent, pending, failed) with proper sorting
   const allMessages = useMemo(() => {
-    console.log('Recalculating all messages...');
-    
+    // Remove console.log for production
     const safeMessages = Array.isArray(messages) ? messages : [];
     const safePendingMessages = Array.isArray(pendingMessages) ? pendingMessages : [];
     const safeFailedMessages = Array.isArray(failedMessages) ? failedMessages : [];
-    
-    // Filter messages for current conversation
+
     const filterMessagesForConversation = (msgArray, type = 'sent') => {
       return msgArray.filter((m) => {
         if (!m || typeof m !== 'object') return false;
         if (!m.fromUser || !m.toUser) return false;
-        
-        // Handle AI bot conversations
         if (toUser === AI_BOT_NAME) {
           return (
             (m.fromUser === username && m.toUser === AI_BOT_NAME) ||
             (m.fromUser === AI_BOT_NAME && m.toUser === username)
           );
         }
-        
-        // Handle regular user conversations
         return (
           (m.fromUser === username && m.toUser === toUser) ||
           (m.fromUser === toUser && m.toUser === username)
@@ -327,21 +329,11 @@ const ChatMessages = ({
     const seenMessages = new Map();
     const uniqueMessages = combinedMessages.filter((m) => {
       const messageId = m._id || m.id || m.tempId;
-      const contentHash = `${m.fromUser}-${m.toUser}-${m.message}-${m.timestamp || m.timeStamp}`;
-      
-      if (messageId && seenMessages.has(`id:${messageId}`)) {
-        return false;
-      }
-      
-      if (seenMessages.has(`content:${contentHash}`)) {
-        return false;
-      }
-      
-      if (messageId) {
-        seenMessages.set(`id:${messageId}`, true);
-      }
+      const contentHash = `${m.fromUser}-${m.toUser}-${m.message}-${m.messageType || ''}-${m.timestamp || m.timeStamp}`;
+      if (messageId && seenMessages.has(`id:${messageId}`)) return false;
+      if (seenMessages.has(`content:${contentHash}`)) return false;
+      if (messageId) seenMessages.set(`id:${messageId}`, true);
       seenMessages.set(`content:${contentHash}`, true);
-      
       return true;
     });
 
@@ -349,21 +341,12 @@ const ChatMessages = ({
     const sortedMessages = uniqueMessages.sort((a, b) => {
       const timeA = new Date(a.timestamp || a.timeStamp || a.createdAt || 0);
       const timeB = new Date(b.timestamp || b.timeStamp || b.createdAt || 0);
-      
       if (timeA.getTime() === timeB.getTime()) {
         const idA = a._id || a.id || a.tempId || '';
         const idB = b._id || b.id || b.tempId || '';
         return idA.localeCompare(idB);
       }
-      
       return timeA - timeB;
-    });
-
-    console.log('Combined messages:', {
-      sent: filteredSentMessages.length,
-      pending: filteredPendingMessages.length,
-      failed: filteredFailedMessages.length,
-      total: sortedMessages.length
     });
 
     return sortedMessages;
@@ -385,7 +368,7 @@ const ChatMessages = ({
       
       {toUser && allMessages.map((message, index) => {
         const messageTime = message.timestamp || message.timeStamp || new Date().toISOString();
-        const isFileMessage = message.messageType === 'file' || message.isFile || Boolean(message.fileInfo);
+     const isFileMessage = message.messageType === 'file' || message.isFile || Boolean(message.fileInfo) || (message.message && message.message.includes('imagekit.io'));
         const isOwnMessage = message.fromUser === username;
         const isPending = message.messageStatus === 'pending';
         const isFailed = message.messageStatus === 'failed';
