@@ -126,13 +126,13 @@ const ChatMessages = ({
     const isImageBroken = brokenImages.has(messageId);
 const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || message.message;
 // If message contains imagekit URL but no fileInfo, treat as file
-if (!fileInfo && message.message && message.message.includes('imagekit.io')) {
-  message.fileInfo = {
-    fileName: 'Uploaded Image',
-    fileUrl: message.message,
-    mimeType: 'image/jpeg'
-  };
-}
+// if (!fileInfo && message.message && message.message.includes('imagekit.io')) {
+//   message.fileInfo = {
+//     fileName: 'Uploaded Image',
+//     fileUrl: message.message,
+//     mimeType: 'image/jpeg'
+//   };
+// }
     const fileName = fileInfo?.fileName || fileInfo?.name || 'Unknown File';
     const fileSize = fileInfo?.fileSize || fileInfo?.size;
     const mimeType = fileInfo?.fileType || fileInfo?.mimeType;
@@ -152,7 +152,7 @@ if (!fileInfo && message.message && message.message.includes('imagekit.io')) {
                   <Image size={32} className={`${isOwnMessage ? 'text-blue-200' : 'text-gray-300'} mb-2`} />
                   <span className={`text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-300'} text-center`}>
                     {isPending ? 'Uploading image...' : 'Image unavailable'}
-                    {!isPending && <><br />(File may have been moved or deleted)</>}
+                    {!isPending && <><br />(Your file is sendi)</>}
                   </span>
                 </div>
               </div>
@@ -368,7 +368,10 @@ if (!fileInfo && message.message && message.message.includes('imagekit.io')) {
       
       {toUser && allMessages.map((message, index) => {
         const messageTime = message.timestamp || message.timeStamp || new Date().toISOString();
-     const isFileMessage = message.messageType === 'file' || message.isFile || Boolean(message.fileInfo) || (message.message && message.message.includes('imagekit.io'));
+     const isFileMessage = (
+  message.messageType === 'file' &&
+  (message.fileInfo && (message.fileInfo.fileUrl || message.fileInfo.fileName))
+);
         const isOwnMessage = message.fromUser === username;
         const isPending = message.messageStatus === 'pending';
         const isFailed = message.messageStatus === 'failed';
@@ -418,9 +421,16 @@ if (!fileInfo && message.message && message.message.includes('imagekit.io')) {
                     {renderFileMessage(message, isPending, isFailed, progress)}
                   </div>
                 ) : (
-                  <p className="text-sm whitespace-pre-wrap break-words">
-                    {message.message || 'No message content'}
-                  </p>
+                  // Ignore plain URL messages that are just imagekit links
+                  !(
+                    typeof message.message === 'string' &&
+                    message.message.startsWith('http') &&
+                    message.message.includes('imagekit.io')
+                  ) && (
+                    <p className="text-sm whitespace-pre-wrap break-words">
+                      {message.message || 'No message content'}
+                    </p>
+                  )
                 )}
                 
                 {/* Timestamp and status */}

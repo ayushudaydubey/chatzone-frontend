@@ -785,32 +785,31 @@ const Context = (props) => {
   };
   // Add this function after handleFileUpload
 const handleFileSend = async (file, onProgress) => {
-  if (!toUser) {
-    throw new Error('No recipient selected');
-  }
+  if (!toUser) throw new Error('No recipient selected');
+
+  // Create a local preview URL for instant feedback
+  const localUrl = URL.createObjectURL(file);
+
+  const fileMessageId = `file-${Date.now()}-${Math.random()}-${username}`;
+  const fileMessageData = {
+    _id: fileMessageId,
+    fromUser: username,
+    toUser: toUser,
+    message: localUrl, // Show preview instantly
+    messageType: 'file',
+    timestamp: new Date().toISOString(),
+    fileInfo: {
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type,
+      fileUrl: localUrl // Local preview
+    },
+    isUploading: true
+  };
+
+  addMessageToState(fileMessageData);
 
   try {
-    // Create immediate file message for sender's UI
-    const fileMessageId = `file-${Date.now()}-${Math.random()}-${username}`;
-    const fileMessageData = {
-      _id: fileMessageId,
-      fromUser: username,
-      toUser: toUser,
-      message: `📎 ${file.name}`,
-      messageType: 'file',
-      timestamp: new Date().toISOString(),
-      fileInfo: {
-        fileName: file.name,
-        fileSize: file.size,
-        mimeType: file.type
-      },
-      isUploading: true // Add flag to show uploading state
-    };
-
-    // ✅ CRITICAL: Add file message to state immediately
-    addMessageToState(fileMessageData);
-
-    // Upload file
     const uploadResponse = await handleFileUpload(file, onProgress);
 
     if (uploadResponse.success) {
@@ -821,8 +820,7 @@ const handleFileSend = async (file, onProgress) => {
                 ...msg, 
                 isUploading: false,
                 fileUrl: uploadResponse.fileUrl,
-            
-                message: uploadResponse.fileUrl, 
+                message: uploadResponse.fileUrl,
                 fileInfo: {
                   ...msg.fileInfo,
                   fileUrl: uploadResponse.fileUrl
@@ -831,7 +829,6 @@ const handleFileSend = async (file, onProgress) => {
             : msg
         )
       );
-
       // Emit to socket for receiver
       const finalFileMessage = {
         ...fileMessageData,
