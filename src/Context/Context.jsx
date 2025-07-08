@@ -28,7 +28,7 @@ const Context = (props) => {
   const messagesEndRef = useRef(null);
   const [isInitialized, setIsInitialized] = useState(false);
   
-  // ✅ NEW: Ref to track sent messages to prevent duplicates
+  
   const sentMessagesRef = useRef(new Set());
 
   // Helper function to safely check if value is array
@@ -36,7 +36,7 @@ const Context = (props) => {
     return Array.isArray(arr) ? arr : [];
   };
 
-  // ✅ ENHANCED: Better duplicate detection with message ID tracking
+  
   const isDuplicateMessage = (newMessage, existingMessages) => {
     // Check if message ID exists in sent messages (for immediate duplicates)
     if (newMessage._id && sentMessagesRef.current.has(newMessage._id)) {
