@@ -813,6 +813,7 @@ const handleFileSend = async (file, onProgress) => {
     const uploadResponse = await handleFileUpload(file, onProgress);
 
     if (uploadResponse.success) {
+      // ✅ Instead of adding a new message, update the existing one
       setMessages(prev => 
         prev.map(msg => 
           msg._id === fileMessageId 
@@ -834,7 +835,11 @@ const handleFileSend = async (file, onProgress) => {
         ...fileMessageData,
         isUploading: false,
         fileUrl: uploadResponse.fileUrl,
-        message: uploadResponse.fileUrl // Sirf file ka URL
+        message: uploadResponse.fileUrl, // Sirf file ka URL
+        fileInfo: {
+          ...fileMessageData.fileInfo,
+          fileUrl: uploadResponse.fileUrl
+        }
       };
 
       if (toUser !== AI_BOT_NAME) {

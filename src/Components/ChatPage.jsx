@@ -4,13 +4,14 @@ import UserList from '../Components/UserList';
 import ChatHeader from '../Components/ChatHeader';
 import ChatMessages from '../Components/ChatMessages';
 import ChatInput from '../Components/ChatInput';
+import axiosInstance from '../utils/axios';
 
 const ChatPage = () => {
   const [isUserListOpen, setIsUserListOpen] = useState(false);
   
   const {
     users, setToUser, toUser, username,
-    message, setMessage, handleSend, messages,
+    message, setMessage, handleSend, messages, setMessages, // Add setMessages here
     setUsername, senderId, setSenderId, receiverId, setReceiverId,
     socket, messagesEndRef, handleFileUpload, isRegistered,
     // Add the unread message functions from context
@@ -56,6 +57,17 @@ const ChatPage = () => {
 
   const handleCloseUserList = () => {
     setIsUserListOpen(false);
+  };
+
+  const handleDeleteMessage = async (messageId) => {
+    try {
+      await axiosInstance.delete(`/user/message/${messageId}`);
+      // Remove from UI immediately
+      setMessages(prev => prev.filter(m => m._id !== messageId));
+    } catch (err) {
+      console.error("Failed to delete message:", err);
+      alert("Failed to delete message");
+    }
   };
 
   return (
@@ -105,11 +117,13 @@ const ChatPage = () => {
         />
         <ChatMessages 
           messages={messages}
+          setMessages={setMessages} // Pass setMessages to ChatMessages
           username={username}
           toUser={toUser}
           formatTime={formatTime}
           formatDate={formatDate}
           messagesEndRef={messagesEndRef}
+          onDeleteMessage={handleDeleteMessage}
         />
         <ChatInput 
           handleSend={handleSend}

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Download, FileText, Image, Video, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Download, FileText, Image, Video, Clock, CheckCircle, XCircle, Trash2, MoreVertical } from 'lucide-react';
+import axiosInstance from '../utils/axios';
 
 const ChatMessages = ({ 
   messages, 
@@ -9,20 +10,22 @@ const ChatMessages = ({
   formatDate, 
   messagesEndRef, 
   AI_BOT_NAME,
-  pendingMessages = [], // New prop for pending messages
-  failedMessages = []   // New prop for failed messages
+  pendingMessages = [],
+  failedMessages = [],
+  onDeleteMessage,
+  setMessages
 }) => {
   const [brokenImages, setBrokenImages] = useState(new Set());
-  const [uploadProgress, setUploadProgress] = useState(new Map()); // Track upload progress
+  const [uploadProgress, setUploadProgress] = useState(new Map());
+  const [showDeleteFor, setShowDeleteFor] = useState(null);
+  const [showDropdown, setShowDropdown] = useState(null);
+  const [localMessages, setLocalMessages] = useState(messages);
+  const [deletingMessages, setDeletingMessages] = useState(new Set()); // Track messages being deleted
 
-  console.log('ChatMessages props:', { 
-    messagesCount: messages?.length || 0, 
-    pendingCount: pendingMessages?.length || 0,
-    failedCount: failedMessages?.length || 0,
-    username, 
-    toUser, 
-    AI_BOT_NAME
-  });
+  // Update local messages when props change
+  useEffect(() => {
+    setLocalMessages(messages);
+  }, [messages]);
 
   // Helper function to format file size
   const formatFileSize = (bytes) => {
@@ -35,14 +38,13 @@ const ChatMessages = ({
 
   // Handle image load errors
   const handleImageError = (messageId) => {
-    console.log('Image load error for message:', messageId);
     setBrokenImages(prev => new Set([...prev, messageId]));
   };
 
   // Validate image URLs
   const isValidImageUrl = (url) => {
     if (!url) return false;
-    if (url.startsWith('blob:')) return true; // Allow blob URLs for pending files
+    if (url.startsWith('blob:')) return true;
     return url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:');
   };
 
@@ -54,7 +56,6 @@ const ChatMessages = ({
       if (mimeType.startsWith('audio/')) return 'audio';
     }
     
-    // Fallback: check file extension
     const extension = fileName?.split('.').pop()?.toLowerCase();
     if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(extension)) return 'image';
     if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv', '3gp'].includes(extension)) return 'video';
@@ -78,6 +79,115 @@ const ChatMessages = ({
     
     return `${type}-${Math.abs(hash)}-${index}`;
   };
+
+  // FIXED: Handle delete message with proper validation and error handling
+  const handleDeleteMessage = async (message) => {
+    console.log('Attempting to delete message:', message);
+    
+    // Validate message has a proper database ID
+    if (!message._id || typeof message._id !== 'string' || message._id.startsWith('sent-') || message._id.startsWith('pending-') || message._id.startsWith('failed-')) {
+      console.error('Invalid message ID:', message._id);
+      alert("Cannot delete message: Invalid message ID. Only saved messages can be deleted.");
+      return;
+    }
+
+    // Check if message is already being deleted
+    if (deletingMessages.has(message._id)) {
+      console.log('Message is already being deleted');
+      return;
+    }
+
+    // Check if user owns the message
+    if (message.fromUser !== username) {
+      console.error('User does not own this message');
+      alert("You can only delete your own messages.");
+      return;
+    }
+
+    try {
+      // Mark message as being deleted
+      setDeletingMessages(prev => new Set([...prev, message._id]));
+      
+      // Optimistically remove from local state for instant UI feedback
+      setLocalMessages(prev => prev.filter(m => m._id !== message._id));
+      
+      // Close dropdown immediately
+      setShowDeleteFor(null);
+      setShowDropdown(null);
+
+      // Make the API call with proper URL encoding
+      const encodedMessageId = encodeURIComponent(message._id);
+      console.log('Encoded message ID:', encodedMessageId);
+      
+      const response = await axiosInstance.delete(`/user/message/${encodedMessageId}`);
+      console.log('Delete response:', response.data);
+      
+      if (response.data.success) {
+        // Success - call parent callbacks to update main state
+        if (onDeleteMessage) {
+          onDeleteMessage(message._id);
+        }
+        
+        if (setMessages) {
+          setMessages(prev => prev.filter(m => m._id !== message._id));
+        }
+        
+        console.log("Message deleted successfully");
+      } else {
+        throw new Error(response.data.error || 'Failed to delete message');
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      
+      // Restore message in local state since deletion failed
+      setLocalMessages(prev => {
+        // Check if message already exists to avoid duplicates
+        const exists = prev.some(m => m._id === message._id);
+        if (!exists) {
+          const restored = [...prev, message].sort((a, b) => {
+            const timeA = new Date(a.timestamp || a.timeStamp || a.createdAt || 0);
+            const timeB = new Date(b.timestamp || b.timeStamp || b.createdAt || 0);
+            return timeA - timeB;
+          });
+          return restored;
+        }
+        return prev;
+      });
+      
+      // Show user-friendly error message
+      let errorMessage = 'Failed to delete message';
+      if (error.response?.status === 400) {
+        errorMessage = 'Bad request: Invalid message ID or format';
+      } else if (error.response?.status === 403) {
+        errorMessage = 'You do not have permission to delete this message';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Message not found or already deleted';
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      }
+      
+      alert(`${errorMessage}: ${error.message}`);
+    } finally {
+      // Remove from deleting set
+      setDeletingMessages(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(message._id);
+        return newSet;
+      });
+    }
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showDropdown && !event.target.closest('.message-dropdown')) {
+        setShowDropdown(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showDropdown]);
 
   // Render progress bar for uploading files
   const renderProgressBar = (progress) => {
@@ -119,28 +229,18 @@ const ChatMessages = ({
     );
   };
 
-  // Render different types of file messages with status
+  // Render file message with enhanced features
   const renderFileMessage = (message, isPending = false, isFailed = false, progress = 0) => {
     const { fileInfo } = message;
     const messageId = message._id || message.id || message.tempId;
     const isImageBroken = brokenImages.has(messageId);
-const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || message.message;
-// If message contains imagekit URL but no fileInfo, treat as file
-// if (!fileInfo && message.message && message.message.includes('imagekit.io')) {
-//   message.fileInfo = {
-//     fileName: 'Uploaded Image',
-//     fileUrl: message.message,
-//     mimeType: 'image/jpeg'
-//   };
-// }
+    const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || message.message;
     const fileName = fileInfo?.fileName || fileInfo?.name || 'Unknown File';
     const fileSize = fileInfo?.fileSize || fileInfo?.size;
     const mimeType = fileInfo?.fileType || fileInfo?.mimeType;
     
     const fileType = getFileType(mimeType, fileName);
     const isOwnMessage = message.fromUser === username;
-
-    console.log(`🎨 Rendering file:`, { fileType, fileName, fileUrl, mimeType, isPending, progress });
 
     const renderFileContent = () => {
       switch (fileType) {
@@ -152,7 +252,6 @@ const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || messa
                   <Image size={32} className={`${isOwnMessage ? 'text-blue-200' : 'text-gray-300'} mb-2`} />
                   <span className={`text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-300'} text-center`}>
                     {isPending ? 'Uploading image...' : 'Image unavailable'}
-                    {!isPending && <><br />(Your file is sendi)</>}
                   </span>
                 </div>
               </div>
@@ -290,10 +389,9 @@ const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || messa
     );
   };
 
-  // Combine all messages (sent, pending, failed) with proper sorting
+  // Filter messages and remove deleted ones from local state
   const allMessages = useMemo(() => {
-    // Remove console.log for production
-    const safeMessages = Array.isArray(messages) ? messages : [];
+    const safeMessages = Array.isArray(localMessages) ? localMessages : [];
     const safePendingMessages = Array.isArray(pendingMessages) ? pendingMessages : [];
     const safeFailedMessages = Array.isArray(failedMessages) ? failedMessages : [];
 
@@ -301,6 +399,12 @@ const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || messa
       return msgArray.filter((m) => {
         if (!m || typeof m !== 'object') return false;
         if (!m.fromUser || !m.toUser) return false;
+        
+        // Filter out messages being deleted
+        if (type === 'sent' && m._id && deletingMessages.has(m._id)) {
+          return false;
+        }
+        
         if (toUser === AI_BOT_NAME) {
           return (
             (m.fromUser === username && m.toUser === AI_BOT_NAME) ||
@@ -318,14 +422,12 @@ const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || messa
     const filteredPendingMessages = filterMessagesForConversation(safePendingMessages, 'pending');
     const filteredFailedMessages = filterMessagesForConversation(safeFailedMessages, 'failed');
 
-    // Combine all messages
     const combinedMessages = [
       ...filteredSentMessages,
       ...filteredPendingMessages,
       ...filteredFailedMessages
     ];
 
-    // Remove duplicates and sort
     const seenMessages = new Map();
     const uniqueMessages = combinedMessages.filter((m) => {
       const messageId = m._id || m.id || m.tempId;
@@ -337,7 +439,6 @@ const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || messa
       return true;
     });
 
-    // Sort by timestamp
     const sortedMessages = uniqueMessages.sort((a, b) => {
       const timeA = new Date(a.timestamp || a.timeStamp || a.createdAt || 0);
       const timeB = new Date(b.timestamp || b.timeStamp || b.createdAt || 0);
@@ -350,7 +451,7 @@ const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || messa
     });
 
     return sortedMessages;
-  }, [messages, pendingMessages, failedMessages, username, toUser, AI_BOT_NAME]);
+  }, [localMessages, pendingMessages, failedMessages, username, toUser, AI_BOT_NAME, deletingMessages]);
 
   return (
     <div className="flex-1 px-3 lg:px-6 py-4 space-y-3 pb-32 lg:pb-28 overflow-y-auto">
@@ -368,14 +469,26 @@ const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || messa
       
       {toUser && allMessages.map((message, index) => {
         const messageTime = message.timestamp || message.timeStamp || new Date().toISOString();
-     const isFileMessage = (
-  message.messageType === 'file' &&
-  (message.fileInfo && (message.fileInfo.fileUrl || message.fileInfo.fileName))
-);
+        const isFileMessage = (
+          message.messageType === 'file' &&
+          (message.fileInfo && (message.fileInfo.fileUrl || message.fileInfo.fileName))
+        );
         const isOwnMessage = message.fromUser === username;
         const isPending = message.messageStatus === 'pending';
         const isFailed = message.messageStatus === 'failed';
         const progress = uploadProgress.get(message.tempId) || 0;
+        const messageId = message._id || message.id || message.tempId;
+        
+        // FIXED: Better validation for deletable messages
+        const canDelete = !isPending && 
+                          !isFailed && 
+                          message._id && 
+                          typeof message._id === 'string' &&
+                          !message._id.startsWith('sent-') &&
+                          !message._id.startsWith('pending-') &&
+                          !message._id.startsWith('failed-') &&
+                          isOwnMessage &&
+                          !deletingMessages.has(message._id);
         
         const prevMessageTime = index > 0 ? 
           (allMessages[index - 1]?.timestamp || allMessages[index - 1]?.timeStamp || new Date().toISOString()) : 
@@ -385,9 +498,10 @@ const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || messa
           (prevMessageTime && formatDate(messageTime) !== formatDate(prevMessageTime));
 
         const messageKey = generateMessageKey(message, index, message.messageStatus);
+        const isBeingDeleted = deletingMessages.has(message._id);
 
         return (
-          <div key={messageKey}>
+          <div key={messageKey} className={isBeingDeleted ? 'opacity-50 transition-opacity' : ''}>
             {/* Date separator */}
             {showDate && (
               <div className="text-center text-xs text-gray-500 my-4 relative">
@@ -401,12 +515,43 @@ const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || messa
             )}
 
             {/* Message bubble */}
-            <div className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+            <div className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'} group relative`}>
+              
+              <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg relative ${
                 isOwnMessage 
                   ? `bg-blue-500 text-white ${isPending ? 'opacity-80' : ''} ${isFailed ? 'bg-red-500' : ''}` 
                   : 'bg-gray-200 text-gray-800'
               }`}>
+                
+                {/* Delete button - only show for deletable messages */}
+                {canDelete && (
+                  <div className="absolute -top-2 -right-2 z-10">
+                    <div className="message-dropdown relative">
+                      <button
+                        onClick={() => setShowDropdown(showDropdown === messageId ? null : messageId)}
+                        className="p-1 bg-gray-700 hover:bg-gray-600 text-white rounded-full shadow-lg transition-colors"
+                        title="Message options"
+                        disabled={isBeingDeleted}
+                      >
+                        <MoreVertical size={12} />
+                      </button>
+                      
+                      {/* Dropdown menu */}
+                      {showDropdown === messageId && (
+                        <div className="absolute right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-20 min-w-[120px]">
+                          <button
+                            onClick={() => handleDeleteMessage(message)}
+                            className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                            disabled={isBeingDeleted}
+                          >
+                            <Trash2 size={14} />
+                            {isBeingDeleted ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 
                 {/* Display username for received messages */}
                 {!isOwnMessage && toUser !== AI_BOT_NAME && (
@@ -416,19 +561,17 @@ const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || messa
                 )}
                 
                 {/* Message content */}
-                {isFileMessage ? (
+                {message.messageType === 'file' ? (
                   <div className="mt-1">
                     {renderFileMessage(message, isPending, isFailed, progress)}
                   </div>
                 ) : (
-                  // Ignore plain URL messages that are just imagekit links
-                  !(
-                    typeof message.message === 'string' &&
+                  message.message &&
+                  !(typeof message.message === 'string' &&
                     message.message.startsWith('http') &&
-                    message.message.includes('imagekit.io')
-                  ) && (
+                    message.message.includes('imagekit.io')) && (
                     <p className="text-sm whitespace-pre-wrap break-words">
-                      {message.message || 'No message content'}
+                      {message.message}
                     </p>
                   )
                 )}
