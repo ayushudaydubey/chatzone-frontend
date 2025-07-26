@@ -27,8 +27,8 @@ const Context = (props) => {
   const AI_BOT_NAME = "Elva Ai";
   const messagesEndRef = useRef(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  
-  
+
+
   const sentMessagesRef = useRef(new Set());
 
   // Helper function to safely check if value is array
@@ -36,7 +36,7 @@ const Context = (props) => {
     return Array.isArray(arr) ? arr : [];
   };
 
-  
+
   const isDuplicateMessage = (newMessage, existingMessages) => {
     // Check if message ID exists in sent messages (for immediate duplicates)
     if (newMessage._id && sentMessagesRef.current.has(newMessage._id)) {
@@ -48,19 +48,19 @@ const Context = (props) => {
       if (newMessage._id && existingMsg._id && newMessage._id === existingMsg._id) {
         return true;
       }
-      
+
       // Check by content and timing (for messages without ID)
-      const isSameContent = 
+      const isSameContent =
         existingMsg.fromUser === newMessage.fromUser &&
         existingMsg.toUser === newMessage.toUser &&
         existingMsg.message === newMessage.message;
-      
+
       // Check if timestamps are within 1 second of each other
       const timeDiff = Math.abs(
-        new Date(existingMsg.timestamp || 0).getTime() - 
+        new Date(existingMsg.timestamp || 0).getTime() -
         new Date(newMessage.timestamp || 0).getTime()
       );
-      
+
       return isSameContent && timeDiff < 1000; // 1 second tolerance
     });
   };
@@ -69,18 +69,18 @@ const Context = (props) => {
   const addMessageToState = useCallback((newMessage) => {
     setMessages(prev => {
       const currentMessages = safeArrayCheck(prev);
-      
+
       // Check for duplicates
       if (isDuplicateMessage(newMessage, currentMessages)) {
         console.log('🚫 Duplicate message detected, skipping:', newMessage._id);
         return prev;
       }
-      
+
       // Add message ID to sent messages tracking
       if (newMessage._id) {
         sentMessagesRef.current.add(newMessage._id);
       }
-      
+
       console.log('✅ Adding new message to state:', newMessage._id);
       return [...currentMessages, newMessage];
     });
@@ -214,143 +214,46 @@ const Context = (props) => {
       let response;
       let apiUrl;
 
-      // Check if it's AI chat
       if (toUser === AI_BOT_NAME) {
-        console.log('📱 Loading AI chat history...');
         apiUrl = `/user/ai-messages?userId=${username}`;
         response = await axiosInstance.get(apiUrl);
       } else {
-        console.log('💬 Loading regular chat history...');
-
-        const possibleUrls = [
-          `/user/messages?senderId=${username}&receiverId=${toUser}`,
-          `/user/chat/${username}/${toUser}`,
-          `/user/chat-history/${username}/${toUser}`,
-          `/user/get-messages?senderId=${username}&receiverId=${toUser}`
-        ];
-
-        let success = false;
-        for (const url of possibleUrls) {
-          try {
-            console.log(`🔍 Trying API endpoint: ${url}`);
-            response = await axiosInstance.get(url);
-            if (response.data && (response.data.success !== false)) {
-              console.log(`✅ Success with endpoint: ${url}`);
-              apiUrl = url;
-              success = true;
-              break;
-            }
-          } catch (err) {
-            console.log(`❌ Failed with endpoint: ${url}`, err.response?.status);
-            continue;
-          }
-        }
-
-        if (!success) {
-          console.error('❌ All API endpoints failed for regular chat');
-          setMessages([]);
-          return;
-        }
+        apiUrl = `/user/messages?senderId=${username}&receiverId=${toUser}`;
+        response = await axiosInstance.get(apiUrl);
       }
 
       if (response.data) {
         let messagesData = [];
+        if (Array.isArray(response.data)) messagesData = response.data;
+        else if (response.data.success && Array.isArray(response.data.messages)) messagesData = response.data.messages;
 
-        // Handle different response formats
-        if (Array.isArray(response.data)) {
-          messagesData = response.data;
-        } else if (response.data.success && Array.isArray(response.data.messages)) {
-          messagesData = response.data.messages;
-        } else if (response.data.success && Array.isArray(response.data.data)) {
-          messagesData = response.data.data;
-        } else if (Array.isArray(response.data.messages)) {
-          messagesData = response.data.messages;
-        } else if (Array.isArray(response.data.data)) {
-          messagesData = response.data.data;
-        } else {
-          console.log('⚠️ Unknown response format:', response.data);
-          setMessages([]);
-          return;
-        }
-
-        // ✅ ENHANCED: Better duplicate removal with unique ID tracking
-        const seenMessages = new Map(); // Use Map instead of Set for better tracking
         const validMessages = messagesData.filter(msg => {
-          const hasRequiredFields = msg &&
-            (msg.fromUser || msg.from || msg.sender) &&
-            (msg.toUser || msg.to || msg.receiver) &&
-            (msg.message || msg.text || msg.content);
-
-          if (!hasRequiredFields) {
-            return false;
-          }
-
-          // Create unique identifier
-          const messageId = msg._id || msg.id;
-          const contentHash = `${msg.fromUser || msg.from || msg.sender}-${msg.toUser || msg.to || msg.receiver}-${msg.message || msg.text || msg.content}-${msg.timestamp || msg.timeStamp || msg.createdAt}`;
-          
-          // Check for duplicates using ID first, then content hash
-          if (messageId) {
-            if (seenMessages.has(messageId)) {
-              console.log('🚫 Duplicate message by ID:', messageId);
-              return false;
-            }
-            seenMessages.set(messageId, true);
-          } else {
-            if (seenMessages.has(contentHash)) {
-              console.log('🚫 Duplicate message by content hash');
-              return false;
-            }
-            seenMessages.set(contentHash, true);
-          }
-          
+          if (!msg || !msg.fromUser || !msg.toUser || !msg.message) return false;
           return true;
         }).map(msg => {
-          // Normalize message structure
           const normalizedMsg = {
-            _id: msg._id || msg.id || `${Date.now()}-${Math.random()}`,
-            fromUser: msg.fromUser || msg.from || msg.sender,
-            toUser: msg.toUser || msg.to || msg.receiver,
-            message: msg.message || msg.text || msg.content,
-            timestamp: msg.timestamp || msg.timeStamp || msg.createdAt || new Date().toISOString(),
-            messageType: msg.messageType || msg.type || 'text',
-            isAiBot: msg.isAiBot || false
+            _id: msg._id || `${Date.now()}-${Math.random()}`,
+            fromUser: msg.fromUser,
+            toUser: msg.toUser,
+            message: msg.message,
+            timestamp: msg.timestamp || new Date().toISOString(),
+            messageType: msg.messageType || 'text',
+            fileInfo: msg.fileInfo || null // Ensure fileInfo is included
           };
-
-          // Preserve fileInfo for file messages
-          if (msg.messageType === 'file' || msg.type === 'file') {
-            normalizedMsg.messageType = 'file';
-            normalizedMsg.fileInfo = msg.fileInfo || {
-              fileName: 'Unknown File',
-              fileSize: 0,
-              mimeType: 'application/octet-stream'
+          if (msg.messageType === 'file' && msg.fileInfo) {
+            normalizedMsg.fileInfo = {
+              fileName: msg.fileInfo.fileName || 'Unknown File',
+              fileSize: msg.fileInfo.fileSize || 0,
+              mimeType: msg.fileInfo.mimeType || 'application/octet-stream',
+              fileUrl: msg.fileInfo.fileUrl || msg.message // Fallback to message if fileUrl missing
             };
           }
-
           return normalizedMsg;
         });
 
-        // Sort messages by timestamp
-        const sortedMessages = validMessages.sort((a, b) => {
-          const timeA = new Date(a.timestamp || 0);
-          const timeB = new Date(b.timestamp || 0);
-          return timeA - timeB;
-        });
-
-        console.log(`✅ Successfully loaded ${sortedMessages.length} messages for chat with ${toUser}`);
-
-        // ✅ CRITICAL: Clear sent messages tracking and replace messages completely
         sentMessagesRef.current.clear();
-        setMessages(sortedMessages);
-        
-        // Add loaded message IDs to tracking to prevent duplicates
-        sortedMessages.forEach(msg => {
-          if (msg._id) {
-            sentMessagesRef.current.add(msg._id);
-          }
-        });
+        setMessages(validMessages.filter(msg => msg.messageType !== 'file' || msg.fileInfo?.fileUrl));
       } else {
-        console.log('📭 No messages found - empty response');
         setMessages([]);
       }
     } catch (error) {
@@ -469,55 +372,55 @@ const Context = (props) => {
 
   // ✅ CRITICAL FIX: Enhanced socket event listeners
   useEffect(() => {
- const handlePrivateMessage = (messageData) => {
-  console.log('📨 Received private message:', messageData);
+    const handlePrivateMessage = (messageData) => {
+      console.log('📨 Received private message:', messageData);
 
-  // Only process if it's for this user and not sent by self
-  if (messageData.toUser === username && messageData.fromUser !== username) {
-    // Normalize message structure for duplicate check
-    const normalizedMsg = {
-      ...messageData,
-      _id: messageData._id || `received-${Date.now()}-${Math.random()}`,
-      fromUser: messageData.fromUser,
-      toUser: messageData.toUser,
-      message: messageData.message,
-      timestamp: messageData.timestamp || new Date().toISOString(),
-      messageType: messageData.messageType || 'text'
+      // Only process if it's for this user and not sent by self
+      if (messageData.toUser === username && messageData.fromUser !== username) {
+        // Normalize message structure for duplicate check
+        const normalizedMsg = {
+          ...messageData,
+          _id: messageData._id || `received-${Date.now()}-${Math.random()}`,
+          fromUser: messageData.fromUser,
+          toUser: messageData.toUser,
+          message: messageData.message,
+          timestamp: messageData.timestamp || new Date().toISOString(),
+          messageType: messageData.messageType || 'text'
+        };
+
+        // Ensure file messages have proper structure
+        if (normalizedMsg.messageType === 'file' && !normalizedMsg.fileInfo) {
+          normalizedMsg.fileInfo = {
+            fileName: 'Unknown File',
+            fileSize: 0,
+            mimeType: 'application/octet-stream'
+          };
+        }
+
+        // Check for duplicate before adding
+        setMessages(prev => {
+          const isDuplicate = prev.some(
+            msg =>
+              (msg._id && normalizedMsg._id && msg._id === normalizedMsg._id) ||
+              (
+                msg.fromUser === normalizedMsg.fromUser &&
+                msg.toUser === normalizedMsg.toUser &&
+                msg.message === normalizedMsg.message &&
+                Math.abs(new Date(msg.timestamp).getTime() - new Date(normalizedMsg.timestamp).getTime()) < 1000
+              )
+          );
+          if (isDuplicate) {
+            console.log('🚫 Duplicate message detected from socket, skipping:', normalizedMsg._id);
+            return prev;
+          }
+          // Add to sentMessagesRef for future duplicate prevention
+          if (normalizedMsg._id) {
+            sentMessagesRef.current.add(normalizedMsg._id);
+          }
+          return [...prev, normalizedMsg];
+        });
+      }
     };
-
-    // Ensure file messages have proper structure
-    if (normalizedMsg.messageType === 'file' && !normalizedMsg.fileInfo) {
-      normalizedMsg.fileInfo = {
-        fileName: 'Unknown File',
-        fileSize: 0,
-        mimeType: 'application/octet-stream'
-      };
-    }
-
-    // Check for duplicate before adding
-    setMessages(prev => {
-      const isDuplicate = prev.some(
-        msg =>
-          (msg._id && normalizedMsg._id && msg._id === normalizedMsg._id) ||
-          (
-            msg.fromUser === normalizedMsg.fromUser &&
-            msg.toUser === normalizedMsg.toUser &&
-            msg.message === normalizedMsg.message &&
-            Math.abs(new Date(msg.timestamp).getTime() - new Date(normalizedMsg.timestamp).getTime()) < 1000
-          )
-      );
-      if (isDuplicate) {
-        console.log('🚫 Duplicate message detected from socket, skipping:', normalizedMsg._id);
-        return prev;
-      }
-      // Add to sentMessagesRef for future duplicate prevention
-      if (normalizedMsg._id) {
-        sentMessagesRef.current.add(normalizedMsg._id);
-      }
-      return [...prev, normalizedMsg];
-    });
-  }
-};
 
     const handleUpdateUsers = (usersWithStatus) => {
       if (Array.isArray(usersWithStatus)) {
@@ -694,7 +597,7 @@ const Context = (props) => {
 
     // ✅ IMPORTANT: Generate unique ID for sent message
     const messageId = `sent-${Date.now()}-${Math.random()}-${username}`;
-    
+
     const messageData = {
       _id: messageId,
       fromUser: username,
@@ -784,41 +687,41 @@ const Context = (props) => {
     }
   };
   // Add this function after handleFileUpload
-const handleFileSend = async (file, onProgress) => {
-  if (!toUser) throw new Error('No recipient selected');
+  const handleFileSend = async (file, onProgress) => {
+    if (!toUser) throw new Error('No recipient selected');
 
-  // Create a local preview URL for instant feedback
-  const localUrl = URL.createObjectURL(file);
+    // Create a local preview URL for instant feedback
+    const localUrl = URL.createObjectURL(file);
 
-  const fileMessageId = `file-${Date.now()}-${Math.random()}-${username}`;
-  const fileMessageData = {
-    _id: fileMessageId,
-    fromUser: username,
-    toUser: toUser,
-    message: localUrl, // Show preview instantly
-    messageType: 'file',
-    timestamp: new Date().toISOString(),
-    fileInfo: {
-      fileName: file.name,
-      fileSize: file.size,
-      mimeType: file.type,
-      fileUrl: localUrl // Local preview
-    },
-    isUploading: true
-  };
+    const fileMessageId = `file-${Date.now()}-${Math.random()}-${username}`;
+    const fileMessageData = {
+      _id: fileMessageId,
+      fromUser: username,
+      toUser: toUser,
+      message: localUrl, // Show preview instantly
+      messageType: 'file',
+      timestamp: new Date().toISOString(),
+      fileInfo: {
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+        fileUrl: localUrl // Local preview
+      },
+      isUploading: true
+    };
 
-  addMessageToState(fileMessageData);
+    addMessageToState(fileMessageData);
 
-  try {
-    const uploadResponse = await handleFileUpload(file, onProgress);
+    try {
+      const uploadResponse = await handleFileUpload(file, onProgress);
 
-    if (uploadResponse.success) {
-      // ✅ Instead of adding a new message, update the existing one
-      setMessages(prev => 
-        prev.map(msg => 
-          msg._id === fileMessageId 
-            ? { 
-                ...msg, 
+      if (uploadResponse.success) {
+        // ✅ Instead of adding a new message, update the existing one
+        setMessages(prev =>
+          prev.map(msg =>
+            msg._id === fileMessageId
+              ? {
+                ...msg,
                 isUploading: false,
                 fileUrl: uploadResponse.fileUrl,
                 message: uploadResponse.fileUrl,
@@ -827,43 +730,43 @@ const handleFileSend = async (file, onProgress) => {
                   fileUrl: uploadResponse.fileUrl
                 }
               }
-            : msg
-        )
-      );
-      // Emit to socket for receiver
-      const finalFileMessage = {
-        ...fileMessageData,
-        isUploading: false,
-        fileUrl: uploadResponse.fileUrl,
-        message: uploadResponse.fileUrl, // Sirf file ka URL
-        fileInfo: {
-          ...fileMessageData.fileInfo,
-          fileUrl: uploadResponse.fileUrl
-        }
-      };
+              : msg
+          )
+        );
+        // Emit to socket for receiver
+        const finalFileMessage = {
+          ...fileMessageData,
+          isUploading: false,
+          fileUrl: uploadResponse.fileUrl,
+          message: uploadResponse.fileUrl, // Sirf file ka URL
+          fileInfo: {
+            ...fileMessageData.fileInfo,
+            fileUrl: uploadResponse.fileUrl
+          }
+        };
 
-      if (toUser !== AI_BOT_NAME) {
-        socket.emit("private-message", finalFileMessage);
+        if (toUser !== AI_BOT_NAME) {
+          socket.emit("private-message", finalFileMessage);
+        }
+
+        // Update last message
+        setLastMessages(prev => ({
+          ...prev,
+          [toUser]: {
+            message: `📎 ${file.name}`,
+            timestamp: fileMessageData.timestamp,
+            isFile: true
+          }
+        }));
+
+        return uploadResponse;
       }
-
-      // Update last message
-      setLastMessages(prev => ({
-        ...prev,
-        [toUser]: {
-          message: `📎 ${file.name}`,
-          timestamp: fileMessageData.timestamp,
-          isFile: true
-        }
-      }));
-
-      return uploadResponse;
+    } catch (error) {
+      // Remove the uploading message on error
+      setMessages(prev => prev.filter(msg => msg._id !== fileMessageId));
+      throw error;
     }
-  } catch (error) {
-    // Remove the uploading message on error
-    setMessages(prev => prev.filter(msg => msg._id !== fileMessageId));
-    throw error;
-  }
-};
+  };
 
   // Registration function
   const register = async (userData) => {
@@ -964,62 +867,62 @@ const handleFileSend = async (file, onProgress) => {
     }
   };
 
-const contextValue = {
-  // User state
-  username, 
-  setUsername, 
-  isRegistered, 
-  setIsRegistered, 
-  senderId, 
-  setSenderId,
-  receiverId, 
-  setReceiverId, 
-  isInitialized, 
-  isLoading,
+  const contextValue = {
+    // User state
+    username,
+    setUsername,
+    isRegistered,
+    setIsRegistered,
+    senderId,
+    setSenderId,
+    receiverId,
+    setReceiverId,
+    isInitialized,
+    isLoading,
 
-  // Message state
-  message, 
-  setMessage, 
-  messages, 
-  setMessages,
-  messagesEndRef,
+    // Message state
+    message,
+    setMessage,
+    messages,
+    setMessages,
+    messagesEndRef,
 
-  // Users and chat
-  users, 
-  toUser, 
-  setToUser,
-  getOnlineUsers,
+    // Users and chat
+    users,
+    toUser,
+    setToUser,
+    getOnlineUsers,
 
-  // Unread messages and notifications
-  unreadMessages, 
-  lastMessages, 
-  markMessagesAsRead,
-  fetchUnreadAndLastMessages, 
-  getUnreadCount, 
-  getLastMessage, 
-  getTotalUnreadCount,
+    // Unread messages and notifications
+    unreadMessages,
+    lastMessages,
+    markMessagesAsRead,
+    fetchUnreadAndLastMessages,
+    getUnreadCount,
+    getLastMessage,
+    getTotalUnreadCount,
 
-  // Authentication functions
-  register, 
-  login, 
-  logout,
-  validateSession,
+    // Authentication functions
+    register,
+    login,
+    logout,
+    validateSession,
 
-  // Message functions
-  handleSend, 
-  handleFileUpload,
-  loadChatHistory,
-   handleFileSend,
-  loadAllUsers,
-  saveAiMessage, 
-  saveRegularMessage,
-  // AI Bot features
-  AI_BOT_NAME, 
-  isAiTyping, 
-  sendToAI,
-  // Socket connection
-  socket
-};
+    // Message functions
+    handleSend,
+    handleFileUpload,
+    loadChatHistory,
+    handleFileSend,
+    loadAllUsers,
+    saveAiMessage,
+    saveRegularMessage,
+    // AI Bot features
+    AI_BOT_NAME,
+    isAiTyping,
+    sendToAI,
+    // Socket connection
+    socket
+  };
 
   return (
     <chatContext.Provider value={contextValue}>

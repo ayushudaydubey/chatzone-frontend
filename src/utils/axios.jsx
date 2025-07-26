@@ -1,111 +1,76 @@
 import axios from 'axios';
 
-const BASE_URL =
-  process.env.NODE_ENV === 'development'
-    ? 'http://localhost:3000'
-    : 'https://chatzone-backend.onrender.com';
+const BASE_URL = 'http://localhost:3000';
 
-// Create axios instance
+// ✅ General axios instance (for JSON APIs)
 const axiosInstance = axios.create({
   baseURL: BASE_URL,
-  withCredentials: true, // This is crucial for cookie-based auth
-  timeout: 10000,
+  withCredentials: true, // For cookies/session
+  timeout: 10000, // 10 sec timeout for normal API
   headers: {
     'Content-Type': 'application/json',
   }
 });
 
-// Create a separate instance for file uploads
+// ✅ File upload instance (NO headers set manually)
 const fileUploadInstance = axios.create({
   baseURL: BASE_URL,
-  withCredentials: true, // Important for file uploads too
-  timeout: 120000,
-  headers: {
-    'Content-Type': 'multipart/form-data',
-  }
+  withCredentials: true, // For session/cookies
+  timeout: 120000, // 2 min timeout for large files
+  // ❌ Do NOT manually set Content-Type: multipart/form-data
+  // Let browser handle it automatically when using FormData
 });
 
-// Request interceptor
+// ✅ Request interceptor for axiosInstance
 axiosInstance.interceptors.request.use(
-  (config) => {
-  
-    return config;
-  },
-  (error) => {
-    // console.error('Request error:', error);
-    return Promise.reject(error);
-  }
+  (config) => config,
+  (error) => Promise.reject(error)
 );
 
-// Response interceptor with cookie-based auth handling
+// ✅ Response interceptor for axiosInstance
 axiosInstance.interceptors.response.use(
-  (response) => {
-    // console.log(`Response from ${response.config.url}:`, response.status, response.data);
-    return response;
-  },
+  (response) => response,
   (error) => {
-    // console.error('Response error:', error);
-    
     if (error.code === 'ECONNREFUSED') {
-      // console.error('Cannot connect to server. Make sure your backend is running on http://localhost:3000');
+      console.error('Cannot connect to server. Check if backend is running.');
     }
-    
+
     if (error.code === 'ECONNABORTED') {
-      // console.error('Request timeout. The server took too long to respond.');
+      console.error('Request timed out.');
     }
-    
-    // Handle authentication errors
+
     if (error.response && error.response.status === 401) {
-      // console.log('Authentication failed - redirecting to login');
-      
-      // Only redirect if not already on login/register pages
       const currentPath = window.location.pathname;
-      if (currentPath !== '/login' && currentPath !== '/register' && currentPath !== '/') {
+      if (!['/login', '/register', '/'].includes(currentPath)) {
         window.location.href = '/login';
       }
     }
-    
-    if (error.response) {
-      // console.error('Error status:', error.response.status);
-      // console.error('Error data:', error.response.data);
-    }
-    
+
     return Promise.reject(error);
   }
 );
 
-// File upload interceptors
+// ✅ File upload request interceptor
 fileUploadInstance.interceptors.request.use(
-  (config) => {
-    // console.log(`Making file upload request to:`, config.baseURL + config.url);
-    return config;
-  },
-  (error) => {
-    // console.error('File upload request error:', error);
-    return Promise.reject(error);
-  }
+  (config) => config,
+  (error) => Promise.reject(error)
 );
 
+// ✅ File upload response interceptor
 fileUploadInstance.interceptors.response.use(
-  (response) => {
-    // console.log(`File upload response:`, response.status);
-    return response;
-  },
+  (response) => response,
   (error) => {
-    // console.error('File upload response error:', error);
-    
     if (error.code === 'ECONNABORTED') {
-      // console.error('File upload timeout. The file upload took too long.');
+      console.error('File upload timed out.');
     }
-    
-    // Handle auth errors for file uploads too
+
     if (error.response && error.response.status === 401) {
       const currentPath = window.location.pathname;
-      if (currentPath !== '/login' && currentPath !== '/register' && currentPath !== '/') {
+      if (!['/login', '/register', '/'].includes(currentPath)) {
         window.location.href = '/login';
       }
     }
-    
+
     return Promise.reject(error);
   }
 );

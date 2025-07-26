@@ -1,33 +1,22 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Download, FileText, Image, Video, Clock, CheckCircle, XCircle, Trash2, MoreVertical } from 'lucide-react';
-import axiosInstance from '../utils/axios';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Download, FileText, Image, Video, Clock, CheckCircle, XCircle, Play, Pause, VolumeX, Volume2, X, ZoomIn } from 'lucide-react';
 
 const ChatMessages = ({ 
-  messages, 
-  username, 
-  toUser, 
-  formatTime, 
-  formatDate, 
+  messages = [], 
+  username = "user", 
+  toUser = "contact", 
+  formatTime = (time) => new Date(time).toLocaleTimeString(), 
+  formatDate = (date) => new Date(date).toLocaleDateString(), 
   messagesEndRef, 
-  AI_BOT_NAME,
+  AI_BOT_NAME = "AI Assistant",
   pendingMessages = [],
   failedMessages = [],
-  onDeleteMessage,
-  setMessages
+  setMessages = () => {}
 }) => {
   const [brokenImages, setBrokenImages] = useState(new Set());
   const [uploadProgress, setUploadProgress] = useState(new Map());
-  const [showDeleteFor, setShowDeleteFor] = useState(null);
-  const [showDropdown, setShowDropdown] = useState(null);
-  const [localMessages, setLocalMessages] = useState(messages);
-  const [deletingMessages, setDeletingMessages] = useState(new Set()); // Track messages being deleted
+  const [imageModal, setImageModal] = useState(null);
 
-  // Update local messages when props change
-  useEffect(() => {
-    setLocalMessages(messages);
-  }, [messages]);
-
-  // Helper function to format file size
   const formatFileSize = (bytes) => {
     if (!bytes || bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -36,223 +25,218 @@ const ChatMessages = ({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  // Handle image load errors
   const handleImageError = (messageId) => {
     setBrokenImages(prev => new Set([...prev, messageId]));
   };
 
-  // Validate image URLs
+  const handleImageClick = (imageUrl, event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setImageModal(imageUrl);
+  };
+
+  const closeImageModal = (event) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    setImageModal(null);
+  };
+
+  // Handle escape key to close modal
+  useEffect(() => {
+    const handleEscapeKey = (event) => {
+      if (event.key === 'Escape' && imageModal) {
+        setImageModal(null);
+      }
+    };
+
+    if (imageModal) {
+      document.addEventListener('keydown', handleEscapeKey);
+      // Store original overflow value
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      
+      return () => {
+        document.removeEventListener('keydown', handleEscapeKey);
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [imageModal]);
+
   const isValidImageUrl = (url) => {
-    if (!url) return false;
+    if (!url || typeof url !== 'string') return false;
     if (url.startsWith('blob:')) return true;
     return url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:');
   };
 
-  // Detect file type from MIME type or file extension
   const getFileType = (mimeType, fileName) => {
-    if (mimeType) {
+    if (mimeType && typeof mimeType === 'string') {
       if (mimeType.startsWith('image/')) return 'image';
       if (mimeType.startsWith('video/')) return 'video';
       if (mimeType.startsWith('audio/')) return 'audio';
     }
-    
     const extension = fileName?.split('.').pop()?.toLowerCase();
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(extension)) return 'image';
-    if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv', '3gp'].includes(extension)) return 'video';
-    if (['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a'].includes(extension)) return 'audio';
-    if (['pdf', 'doc', 'docx', 'txt', 'rtf'].includes(extension)) return 'document';
-    
+    if (extension && ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(extension)) return 'image';
+    if (extension && ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv', '3gp'].includes(extension)) return 'video';
+    if (extension && ['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a'].includes(extension)) return 'audio';
+    if (extension && ['pdf', 'doc', 'docx', 'txt', 'rtf'].includes(extension)) return 'document';
     return 'file';
   };
 
-  // Enhanced message key generation
   const generateMessageKey = (message, index, type = 'sent') => {
     if (message._id) return `${type}-${message._id}`;
     if (message.id) return `${type}-${message.id}`;
-    if (message.tempId) return `${type}-${message.tempId}`;
+    if (message.tempId) return `${type}-temp-${message.tempId}`;
     
-    const contentKey = `${message.fromUser}-${message.toUser}-${message.message}-${message.timestamp || message.timeStamp}`;
-    const hash = contentKey.split('').reduce((a, b) => {
-      a = ((a << 5) - a) + b.charCodeAt(0);
-      return a & a;
-    }, 0);
+    const timestamp = message.timestamp || message.timeStamp || message.createdAt || Date.now();
+    const contentKey = `${message.fromUser || 'unknown'}-${message.toUser || 'unknown'}-${message.message || ''}-${timestamp}-${type}`;
     
-    return `${type}-${Math.abs(hash)}-${index}`;
+    let hash = 0;
+    for (let i = 0; i < contentKey.length; i++) {
+      const char = contentKey.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    
+    return `${type}-${Math.abs(hash)}-${index}-${timestamp}`;
   };
 
-  // FIXED: Handle delete message with proper validation and error handling
-  const handleDeleteMessage = async (message) => {
-    console.log('Attempting to delete message:', message);
-    
-    // Validate message has a proper database ID
-    if (!message._id || typeof message._id !== 'string' || message._id.startsWith('sent-') || message._id.startsWith('pending-') || message._id.startsWith('failed-')) {
-      console.error('Invalid message ID:', message._id);
-      alert("Cannot delete message: Invalid message ID. Only saved messages can be deleted.");
-      return;
-    }
+  const renderProgressBar = (progress) => (
+    <div className="w-full bg-gray-800/60 rounded-full h-2 mt-3 overflow-hidden border border-green-500/20">
+      <div 
+        className="bg-gradient-to-r from-green-400 to-emerald-500 h-full rounded-full transition-all duration-500 ease-out shadow-lg shadow-green-500/30"
+        style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+      />
+    </div>
+  );
 
-    // Check if message is already being deleted
-    if (deletingMessages.has(message._id)) {
-      console.log('Message is already being deleted');
-      return;
-    }
-
-    // Check if user owns the message
-    if (message.fromUser !== username) {
-      console.error('User does not own this message');
-      alert("You can only delete your own messages.");
-      return;
-    }
-
-    try {
-      // Mark message as being deleted
-      setDeletingMessages(prev => new Set([...prev, message._id]));
-      
-      // Optimistically remove from local state for instant UI feedback
-      setLocalMessages(prev => prev.filter(m => m._id !== message._id));
-      
-      // Close dropdown immediately
-      setShowDeleteFor(null);
-      setShowDropdown(null);
-
-      // Make the API call with proper URL encoding
-      const encodedMessageId = encodeURIComponent(message._id);
-      console.log('Encoded message ID:', encodedMessageId);
-      
-      const response = await axiosInstance.delete(`/user/message/${encodedMessageId}`);
-      console.log('Delete response:', response.data);
-      
-      if (response.data.success) {
-        // Success - call parent callbacks to update main state
-        if (onDeleteMessage) {
-          onDeleteMessage(message._id);
-        }
-        
-        if (setMessages) {
-          setMessages(prev => prev.filter(m => m._id !== message._id));
-        }
-        
-        console.log("Message deleted successfully");
-      } else {
-        throw new Error(response.data.error || 'Failed to delete message');
-      }
-    } catch (error) {
-      console.error('Delete error:', error);
-      
-      // Restore message in local state since deletion failed
-      setLocalMessages(prev => {
-        // Check if message already exists to avoid duplicates
-        const exists = prev.some(m => m._id === message._id);
-        if (!exists) {
-          const restored = [...prev, message].sort((a, b) => {
-            const timeA = new Date(a.timestamp || a.timeStamp || a.createdAt || 0);
-            const timeB = new Date(b.timestamp || b.timeStamp || b.createdAt || 0);
-            return timeA - timeB;
-          });
-          return restored;
-        }
-        return prev;
-      });
-      
-      // Show user-friendly error message
-      let errorMessage = 'Failed to delete message';
-      if (error.response?.status === 400) {
-        errorMessage = 'Bad request: Invalid message ID or format';
-      } else if (error.response?.status === 403) {
-        errorMessage = 'You do not have permission to delete this message';
-      } else if (error.response?.status === 404) {
-        errorMessage = 'Message not found or already deleted';
-      } else if (error.response?.data?.error) {
-        errorMessage = error.response.data.error;
-      }
-      
-      alert(`${errorMessage}: ${error.message}`);
-    } finally {
-      // Remove from deleting set
-      setDeletingMessages(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(message._id);
-        return newSet;
-      });
-    }
-  };
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (showDropdown && !event.target.closest('.message-dropdown')) {
-        setShowDropdown(null);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showDropdown]);
-
-  // Render progress bar for uploading files
-  const renderProgressBar = (progress) => {
-    return (
-      <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-        <div 
-          className="bg-blue-500 h-2 rounded-full transition-all duration-300 ease-out"
-          style={{ width: `${progress}%` }}
-        ></div>
-      </div>
-    );
-  };
-
-  // Render status indicator
   const renderStatusIndicator = (status, isPending = false, isFailed = false) => {
     if (isFailed) {
       return (
-        <div className="flex items-center gap-1 text-red-400 text-xs mt-1">
-          <XCircle size={12} />
-          <span>Failed to send</span>
+        <div className="flex items-center gap-1.5 text-red-400 text-xs mt-2 opacity-90">
+          <XCircle size={10} />
+          <span className="font-medium">Failed to send</span>
         </div>
       );
     }
-    
     if (isPending) {
       return (
-        <div className="flex items-center gap-1 text-blue-300 text-xs mt-1">
-          <Clock size={12} className="animate-spin" />
-          <span>Sending...</span>
+        <div className="flex items-center gap-1.5 text-green-400 text-xs mt-2 opacity-90">
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse shadow-sm shadow-green-400/50" />
+          <span className="font-medium">Sending...</span>
         </div>
       );
     }
-
-    return (
-      <div className="flex items-center gap-1 text-green-400 text-xs mt-1">
-        <CheckCircle size={12} />
-        <span>Sent</span>
-      </div>
-    );
+    return null;
   };
 
-  // Render file message with enhanced features
-  const renderFileMessage = (message, isPending = false, isFailed = false, progress = 0) => {
+  const getMessageType = (message) => {
+    if (!message) return 'text';
+    
+    if (message.fileInfo) {
+      const { fileInfo } = message;
+      const fileName = fileInfo?.fileName || fileInfo?.name || '';
+      const mimeType = fileInfo?.fileType || fileInfo?.mimeType || '';
+      
+      if (mimeType && mimeType.startsWith('image/')) {
+        return 'image';
+      }
+      
+      const fileType = getFileType(mimeType, fileName);
+      return fileType;
+    }
+    
+    if (message.message && typeof message.message === 'string') {
+      const messageContent = message.message.trim();
+      
+      const imageUrlPatterns = [
+        /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)(\?.*)?$/i,
+        /^data:image\//i,
+        /blob:.*image/i,
+        /imagekit\.io.*\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)/i,
+        /cloudinary\.com.*\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)/i,
+        /amazonaws\.com.*\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)/i,
+      ];
+      
+      const isImageUrl = imageUrlPatterns.some(pattern => pattern.test(messageContent));
+      
+      if (isImageUrl) {
+        return 'image';
+      }
+      
+      const videoPatterns = [
+        /\.(mp4|avi|mov|wmv|flv|webm|mkv|3gp)(\?.*)?$/i
+      ];
+      
+      if (videoPatterns.some(pattern => pattern.test(messageContent))) {
+        return 'video';
+      }
+      
+      const audioPatterns = [
+        /\.(mp3|wav|ogg|aac|flac|m4a)(\?.*)?$/i
+      ];
+      
+      if (audioPatterns.some(pattern => pattern.test(messageContent))) {
+        return 'audio';
+      }
+      
+      if (/^https?:\/\/[^\s]+$/.test(messageContent)) {
+        return 'file';
+      }
+    }
+    
+    return 'text';
+  };
+
+  const renderFileMessage = (message, messageType, isPending = false, isFailed = false, progress = 0) => {
     const { fileInfo } = message;
     const messageId = message._id || message.id || message.tempId;
     const isImageBroken = brokenImages.has(messageId);
-    const fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl || message.message;
-    const fileName = fileInfo?.fileName || fileInfo?.name || 'Unknown File';
-    const fileSize = fileInfo?.fileSize || fileInfo?.size;
-    const mimeType = fileInfo?.fileType || fileInfo?.mimeType;
     
-    const fileType = getFileType(mimeType, fileName);
+    let fileUrl, fileName, fileSize, mimeType;
+    
+    if (fileInfo) {
+      fileUrl = fileInfo?.fileUrl || fileInfo?.url || fileInfo?.blobUrl;
+      fileName = fileInfo?.fileName || fileInfo?.name || 'Unknown File';
+      fileSize = fileInfo?.fileSize || fileInfo?.size;
+      mimeType = fileInfo?.fileType || fileInfo?.mimeType;
+    } else if (messageType === 'image' && message.message) {
+      fileUrl = message.message;
+      fileName = fileUrl?.split('/').pop()?.split('?')[0] || 'Image';
+      fileSize = null;
+      mimeType = 'image/jpeg';
+    } else if (messageType !== 'text' && message.message) {
+      fileUrl = message.message;
+      fileName = fileUrl?.split('/').pop()?.split('?')[0] || 'File';
+      fileSize = null;
+      mimeType = null;
+    }
+    
     const isOwnMessage = message.fromUser === username;
 
     const renderFileContent = () => {
-      switch (fileType) {
+      switch (messageType) {
         case 'image':
           if (!isValidImageUrl(fileUrl) || isImageBroken) {
             return (
               <div className="max-w-xs lg:max-w-sm">
-                <div className={`${isOwnMessage ? 'bg-blue-600' : 'bg-gray-600'} rounded-lg p-4 flex flex-col items-center justify-center min-h-[100px] border-2 border-dashed ${isOwnMessage ? 'border-blue-400' : 'border-gray-500'}`}>
-                  <Image size={32} className={`${isOwnMessage ? 'text-blue-200' : 'text-gray-300'} mb-2`} />
-                  <span className={`text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-300'} text-center`}>
+                <div className={`${isOwnMessage ? 'bg-gradient-to-br from-green-600 to-emerald-700 border-green-400/30' : 'bg-gradient-to-br from-gray-800 to-gray-900 border-gray-600/30'} rounded-xl p-6 flex flex-col items-center justify-center min-h-[120px] border border-dashed backdrop-blur-sm`}>
+                  <div className={`p-3 rounded-full ${isOwnMessage ? 'bg-green-400/20' : 'bg-gray-600/20'} mb-3`}>
+                    <Image size={28} className={`${isOwnMessage ? 'text-green-200' : 'text-gray-400'}`} />
+                  </div>
+                  <span className={`text-xs ${isOwnMessage ? 'text-green-100' : 'text-gray-400'} text-center font-medium`}>
                     {isPending ? 'Uploading image...' : 'Image unavailable'}
                   </span>
+                  {fileName && (
+                    <span className={`text-xs ${isOwnMessage ? 'text-green-200' : 'text-gray-500'} text-center mt-1 truncate max-w-full`}>
+                      {fileName}
+                    </span>
+                  )}
                 </div>
               </div>
             );
@@ -260,98 +244,102 @@ const ChatMessages = ({
 
           return (
             <div className="max-w-xs lg:max-w-sm">
-              <div className="relative">
-                <img
-                  src={fileUrl}
-                  alt={fileName}
-                  className={`rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity ${isPending ? 'opacity-70' : ''}`}
-                  onClick={() => !isPending && window.open(fileUrl, '_blank')}
-                  onError={() => handleImageError(messageId)}
-                  loading="lazy"
-                />
+              <div className="relative group">
+                <div className="relative overflow-hidden rounded-xl">
+                  <img
+                    src={fileUrl}
+                    alt={fileName}
+                    className={`rounded-xl max-w-full h-auto cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-green-500/20 ${isPending ? 'opacity-70' : ''} shadow-lg border border-green-500/10`}
+                    onClick={(e) => !isPending && handleImageClick(fileUrl, e)}
+                    onError={() => handleImageError(messageId)}
+                    loading="lazy"
+                  />
+                  
+                  {/* Hover overlay with zoom icon */}
+                  <div className="absolute inset-0 bg-black/0 hover:bg-black/20 rounded-xl transition-all duration-200 flex items-center justify-center opacity-0 hover:opacity-100 cursor-pointer"
+                       onClick={(e) => !isPending && handleImageClick(fileUrl, e)}>
+                    <div className="bg-white/20 backdrop-blur-sm rounded-full p-2 transform scale-75 hover:scale-100 transition-transform duration-200">
+                      <ZoomIn size={20} className="text-white" />
+                    </div>
+                  </div>
+                </div>
+                
                 {isPending && (
-                  <div className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex items-center justify-center">
-                    <div className="text-white text-sm text-center">
-                      <Clock size={24} className="animate-spin mx-auto mb-2" />
-                      Uploading... {progress}%
+                  <div className="absolute inset-0 bg-black/80 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                    <div className="text-green-400 text-sm text-center">
+                      <div className="w-8 h-8 border-2 border-green-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                      <div className="font-medium">Uploading... {progress}%</div>
                     </div>
                   </div>
                 )}
               </div>
+              {fileName && fileName !== 'Image' && (
+                <div className={`text-xs ${isOwnMessage ? 'text-green-200' : 'text-gray-400'} mt-2 text-center truncate`}>
+                  {fileName}
+                </div>
+              )}
             </div>
           );
 
         case 'video':
           return (
             <div className="max-w-xs lg:max-w-sm">
-              <div className="relative">
-                <video
-                  controls={!isPending}
-                  className={`rounded-lg max-w-full h-auto ${isPending ? 'opacity-70' : ''}`}
-                  preload="metadata"
-                  onError={() => handleImageError(messageId)}
-                >
+              <div className="relative group">
+                <video controls className={`rounded-xl max-w-full h-auto shadow-lg border border-green-500/20 ${isPending ? 'opacity-70' : ''}`}>
                   <source src={fileUrl} type={mimeType} />
                   Your browser does not support the video tag.
                 </video>
                 {isPending && (
-                  <div className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex items-center justify-center">
-                    <div className="text-white text-sm text-center">
-                      <Video size={24} className="animate-pulse mx-auto mb-2" />
-                      Uploading... {progress}%
-                    </div>
+                  <div className="absolute top-2 right-2 bg-black/80 text-green-400 text-xs px-3 py-1 rounded-full backdrop-blur-sm font-medium">
+                    {progress}%
                   </div>
                 )}
               </div>
+              {fileName && (
+                <div className={`text-xs ${isOwnMessage ? 'text-green-200' : 'text-gray-400'} mt-2 text-center truncate`}>
+                  {fileName}
+                </div>
+              )}
             </div>
           );
 
         case 'audio':
           return (
             <div className="max-w-xs lg:max-w-sm">
-              <audio
-                controls={!isPending}
-                className={`w-full ${isPending ? 'opacity-70' : ''}`}
-                preload="metadata"
-              >
-                <source src={fileUrl} type={mimeType} />
-                Your browser does not support the audio element.
-              </audio>
-              {isPending && (
-                <div className="text-center text-xs text-blue-200 mt-2">
-                  Uploading audio... {progress}%
-                </div>
-              )}
+              <div className={`p-4 rounded-xl ${isOwnMessage ? 'bg-gradient-to-r from-green-600 to-emerald-700 border border-green-500/30' : 'bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-600/30'} shadow-lg backdrop-blur-sm`}>
+                <audio controls className={`w-full ${isPending ? 'opacity-70' : ''}`}>
+                  <source src={fileUrl} type={mimeType} />
+                  Your browser does not support the audio element.
+                </audio>
+                {isPending && (
+                  <div className="text-center text-xs text-green-300 mt-2 font-medium">Uploading audio... {progress}%</div>
+                )}
+                {fileName && (
+                  <div className={`text-xs ${isOwnMessage ? 'text-green-200' : 'text-gray-400'} mt-2 text-center truncate`}>
+                    {fileName}
+                  </div>
+                )}
+              </div>
             </div>
           );
 
         default:
           return (
-            <div className={`flex items-center gap-2 p-3 ${isOwnMessage ? 'bg-blue-600' : 'bg-gray-600'} rounded-lg max-w-xs lg:max-w-sm ${isPending ? 'opacity-70' : ''}`}>
-              <FileText size={20} className={`${isOwnMessage ? 'text-blue-100' : 'text-gray-300'} flex-shrink-0`} />
-              <div className="flex-1 min-w-0">
-                <div className={`text-sm font-medium truncate ${isOwnMessage ? 'text-white' : 'text-gray-100'}`}>
-                  {fileName}
-                </div>
-                {fileSize && (
-                  <div className={`text-xs ${isOwnMessage ? 'text-blue-200' : 'text-gray-400'}`}>
-                    {formatFileSize(fileSize)}
-                  </div>
-                )}
-                {isPending && (
-                  <div className={`text-xs ${isOwnMessage ? 'text-blue-200' : 'text-gray-400'}`}>
-                    Uploading... {progress}%
-                  </div>
-                )}
+            <div className={`flex items-center gap-3 p-4 ${isOwnMessage ? 'bg-gradient-to-r from-green-600 to-emerald-700 border-green-500/30' : 'bg-gradient-to-r from-gray-800 to-gray-900 border-gray-600/30'} rounded-xl max-w-xs lg:max-w-sm shadow-lg border backdrop-blur-sm ${isPending ? 'opacity-70' : ''} hover:shadow-xl hover:shadow-green-500/10 transition-all duration-300`}>
+              <div className={`p-2 rounded-lg ${isOwnMessage ? 'bg-green-400/20' : 'bg-gray-600/20'}`}>
+                <FileText size={20} className={`${isOwnMessage ? 'text-green-200' : 'text-gray-400'}`} />
               </div>
-              {!isPending && isValidImageUrl(fileUrl) && (
+              <div className="flex-1 min-w-0">
+                <div className={`text-sm font-medium truncate ${isOwnMessage ? 'text-white' : 'text-gray-200'}`}>{fileName}</div>
+                <div className={`text-xs ${isOwnMessage ? 'text-green-200' : 'text-gray-500'} mt-0.5`}>{formatFileSize(fileSize)}</div>
+              </div>
+              {fileUrl && (
                 <a
                   href={fileUrl}
                   download={fileName}
-                  className={`p-1 hover:${isOwnMessage ? 'bg-blue-500' : 'bg-gray-500'} rounded transition-colors flex-shrink-0`}
-                  title="Download"
+                  className={`p-2 rounded-lg hover:bg-white/10 transition-colors duration-200 ${isOwnMessage ? 'text-green-200 hover:text-white' : 'text-gray-400 hover:text-gray-200'}`}
                 >
-                  <Download size={14} />
+                  <Download size={16} />
                 </a>
               )}
             </div>
@@ -362,256 +350,225 @@ const ChatMessages = ({
     return (
       <div>
         {renderFileContent()}
-        {fileName && (
-          <div className={`text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-300'} mt-2 flex items-center justify-between`}>
-            <span className="truncate flex-1 mr-2">{fileName}</span>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {fileSize && (
-                <span className={`${isOwnMessage ? 'text-blue-200' : 'text-gray-400'}`}>
-                  ({formatFileSize(fileSize)})
-                </span>
-              )}
-              {!isPending && isValidImageUrl(fileUrl) && (
-                <a
-                  href={fileUrl}
-                  download={fileName}
-                  className={`p-1 hover:${isOwnMessage ? 'bg-blue-600' : 'bg-gray-600'} rounded transition-colors`}
-                  title="Download"
-                >
-                  <Download size={12} />
-                </a>
-              )}
-            </div>
-          </div>
-        )}
         {isPending && renderProgressBar(progress)}
       </div>
     );
   };
 
-  // Filter messages and remove deleted ones from local state
+  // Sample messages for demo
+  const sampleMessages = [
+    {
+      _id: '1',
+      fromUser: username,
+      toUser: toUser,
+      message: 'Hello! How are you?',
+      timestamp: new Date(Date.now() - 300000).toISOString()
+    },
+    {
+      _id: '2',
+      fromUser: toUser,
+      toUser: username,
+      message: 'I am doing great! Thanks for asking.',
+      timestamp: new Date(Date.now() - 240000).toISOString()
+    },
+    {
+      _id: '3',
+      fromUser: username,
+      toUser: toUser,
+      message: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=500&h=300&fit=crop',
+      timestamp: new Date(Date.now() - 180000).toISOString()
+    },
+    {
+      _id: '4',
+      fromUser: toUser,
+      toUser: username,
+      message: 'Beautiful landscape! Where was this taken?',
+      timestamp: new Date(Date.now() - 120000).toISOString()
+    },
+    {
+      _id: '5',
+      fromUser: username,
+      toUser: toUser,
+      message: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400&h=600&fit=crop',
+      timestamp: new Date(Date.now() - 60000).toISOString()
+    }
+  ];
+
   const allMessages = useMemo(() => {
-    const safeMessages = Array.isArray(localMessages) ? localMessages : [];
+    const safeMessages = Array.isArray(messages) && messages.length > 0 ? messages : sampleMessages;
     const safePendingMessages = Array.isArray(pendingMessages) ? pendingMessages : [];
     const safeFailedMessages = Array.isArray(failedMessages) ? failedMessages : [];
 
-    const filterMessagesForConversation = (msgArray, type = 'sent') => {
-      return msgArray.filter((m) => {
-        if (!m || typeof m !== 'object') return false;
-        if (!m.fromUser || !m.toUser) return false;
-        
-        // Filter out messages being deleted
-        if (type === 'sent' && m._id && deletingMessages.has(m._id)) {
-          return false;
-        }
-        
-        if (toUser === AI_BOT_NAME) {
+    const filterMessagesForConversation = (msgArray, type = 'sent') =>
+      msgArray
+        .filter((m) => {
+          if (!m || typeof m !== 'object') return false;
+          if (!m.fromUser || !m.toUser) return false;
+          if (toUser === AI_BOT_NAME) {
+            return (
+              (m.fromUser === username && m.toUser === AI_BOT_NAME) ||
+              (m.fromUser === AI_BOT_NAME && m.toUser === username)
+            );
+          }
           return (
-            (m.fromUser === username && m.toUser === AI_BOT_NAME) ||
-            (m.fromUser === AI_BOT_NAME && m.toUser === username)
+            (m.fromUser === username && m.toUser === toUser) ||
+            (m.fromUser === toUser && m.toUser === username)
           );
-        }
-        return (
-          (m.fromUser === username && m.toUser === toUser) ||
-          (m.fromUser === toUser && m.toUser === username)
-        );
-      }).map(m => ({ ...m, messageStatus: type }));
-    };
-
-    const filteredSentMessages = filterMessagesForConversation(safeMessages, 'sent');
-    const filteredPendingMessages = filterMessagesForConversation(safePendingMessages, 'pending');
-    const filteredFailedMessages = filterMessagesForConversation(safeFailedMessages, 'failed');
+        })
+        .map(m => ({ ...m, messageStatus: type }));
 
     const combinedMessages = [
-      ...filteredSentMessages,
-      ...filteredPendingMessages,
-      ...filteredFailedMessages
+      ...filterMessagesForConversation(safeMessages, 'sent'),
+      ...filterMessagesForConversation(safePendingMessages, 'pending'),
+      ...filterMessagesForConversation(safeFailedMessages, 'failed')
     ];
 
-    const seenMessages = new Map();
-    const uniqueMessages = combinedMessages.filter((m) => {
-      const messageId = m._id || m.id || m.tempId;
-      const contentHash = `${m.fromUser}-${m.toUser}-${m.message}-${m.messageType || ''}-${m.timestamp || m.timeStamp}`;
-      if (messageId && seenMessages.has(`id:${messageId}`)) return false;
-      if (seenMessages.has(`content:${contentHash}`)) return false;
-      if (messageId) seenMessages.set(`id:${messageId}`, true);
-      seenMessages.set(`content:${contentHash}`, true);
-      return true;
-    });
+    const uniqueMessages = combinedMessages.reduce((acc, current) => {
+      const isDuplicate = acc.some(msg => {
+        if (current._id && msg._id && current._id === msg._id) {
+          return true;
+        }
+        if (current.id && msg.id && current.id === msg.id) {
+          return true;
+        }
+        if (current.tempId && msg.tempId && current.tempId === msg.tempId) {
+          return true;
+        }
+        
+        const sameContent = current.message === msg.message;
+        const sameUsers = current.fromUser === msg.fromUser && current.toUser === msg.toUser;
+        
+        if (sameContent && sameUsers) {
+          const currentTime = new Date(current.timestamp || current.timeStamp || current.createdAt || 0).getTime();
+          const msgTime = new Date(msg.timestamp || msg.timeStamp || msg.createdAt || 0).getTime();
+          const timeDiff = Math.abs(currentTime - msgTime);
+          
+          if (timeDiff < 2000) {
+            return true;
+          }
+        }
+        
+        return false;
+      });
 
-    const sortedMessages = uniqueMessages.sort((a, b) => {
-      const timeA = new Date(a.timestamp || a.timeStamp || a.createdAt || 0);
-      const timeB = new Date(b.timestamp || b.timeStamp || b.createdAt || 0);
-      if (timeA.getTime() === timeB.getTime()) {
-        const idA = a._id || a.id || a.tempId || '';
-        const idB = b._id || b.id || b.tempId || '';
-        return idA.localeCompare(idB);
+      if (!isDuplicate) {
+        acc.push(current);
       }
+      
+      return acc;
+    }, []);
+
+    return uniqueMessages.sort((a, b) => {
+      const timeA = new Date(a.timestamp || a.timeStamp || a.createdAt || 0).getTime();
+      const timeB = new Date(b.timestamp || b.timeStamp || b.createdAt || 0).getTime();
       return timeA - timeB;
     });
-
-    return sortedMessages;
-  }, [localMessages, pendingMessages, failedMessages, username, toUser, AI_BOT_NAME, deletingMessages]);
+  }, [messages, pendingMessages, failedMessages, username, toUser, AI_BOT_NAME, sampleMessages]);
 
   return (
-    <div className="flex-1 px-3 lg:px-6 py-4 space-y-3 pb-32 lg:pb-28 overflow-y-auto">
-      {!toUser && (
-        <div className="flex flex-col items-center justify-center h-full text-center px-4">
-          <div className="text-6xl lg:text-8xl mb-4 opacity-20">💬</div>
-          <h3 className="text-xl lg:text-2xl font-semibold text-gray-300 mb-2">
-            Select a chat to start messaging
-          </h3>
-          <p className="text-gray-500 text-sm lg:text-base">
-            Choose from your contacts to begin a conversation
-          </p>
-        </div>
-      )}
-      
-      {toUser && allMessages.map((message, index) => {
-        const messageTime = message.timestamp || message.timeStamp || new Date().toISOString();
-        const isFileMessage = (
-          message.messageType === 'file' &&
-          (message.fileInfo && (message.fileInfo.fileUrl || message.fileInfo.fileName))
-        );
-        const isOwnMessage = message.fromUser === username;
-        const isPending = message.messageStatus === 'pending';
-        const isFailed = message.messageStatus === 'failed';
-        const progress = uploadProgress.get(message.tempId) || 0;
-        const messageId = message._id || message.id || message.tempId;
-        
-        // FIXED: Better validation for deletable messages
-        const canDelete = !isPending && 
-                          !isFailed && 
-                          message._id && 
-                          typeof message._id === 'string' &&
-                          !message._id.startsWith('sent-') &&
-                          !message._id.startsWith('pending-') &&
-                          !message._id.startsWith('failed-') &&
-                          isOwnMessage &&
-                          !deletingMessages.has(message._id);
-        
-        const prevMessageTime = index > 0 ? 
-          (allMessages[index - 1]?.timestamp || allMessages[index - 1]?.timeStamp || new Date().toISOString()) : 
-          null;
+    <>
+      <div className="flex-1 px-4 lg:px-8 py-6 space-y-6 pb-32 lg:pb-28 overflow-y-auto bg-gradient-to-b from-black via-gray-900 to-black">
+        {!toUser ? (
+          <div className="flex flex-col items-center justify-center h-full text-center px-4">
+            <div className="relative mb-8">
+              <div className="text-8xl lg:text-9xl opacity-20 animate-pulse">💬</div>
+              <div className="absolute inset-0 bg-gradient-to-r from-green-500/20 to-emerald-500/20 rounded-full blur-3xl animate-pulse"></div>
+            </div>
+            <h3 className="text-3xl font-bold text-white mb-4 bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">
+              Select a chat to start messaging
+            </h3>
+            <p className="text-gray-400 text-lg max-w-md leading-relaxed">
+              Choose from your contacts to begin a conversation and start sharing your thoughts
+            </p>
+          </div>
+        ) : (
+          allMessages.map((message, index) => {
+            const isOwn = message.fromUser === username;
+            const isPending = message.messageStatus === 'pending';
+            const isFailed = message.messageStatus === 'failed';
+            const messageType = getMessageType(message);
+            const messageTime = message.timestamp || message.timeStamp || message.createdAt || new Date().toISOString();
+            const messageKey = generateMessageKey(message, index, message.messageStatus);
+            const progress = uploadProgress.get(message.tempId) || 0;
 
-        const showDate = index === 0 || 
-          (prevMessageTime && formatDate(messageTime) !== formatDate(prevMessageTime));
-
-        const messageKey = generateMessageKey(message, index, message.messageStatus);
-        const isBeingDeleted = deletingMessages.has(message._id);
-
-        return (
-          <div key={messageKey} className={isBeingDeleted ? 'opacity-50 transition-opacity' : ''}>
-            {/* Date separator */}
-            {showDate && (
-              <div className="text-center text-xs text-gray-500 my-4 relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300"></div>
-                </div>
-                <div className="relative inline-block bg-white px-3">
-                  {formatDate(messageTime)}
-                </div>
-              </div>
-            )}
-
-            {/* Message bubble */}
-            <div className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'} group relative`}>
-              
-              <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg relative ${
-                isOwnMessage 
-                  ? `bg-blue-500 text-white ${isPending ? 'opacity-80' : ''} ${isFailed ? 'bg-red-500' : ''}` 
-                  : 'bg-gray-200 text-gray-800'
-              }`}>
-                
-                {/* Delete button - only show for deletable messages */}
-                {canDelete && (
-                  <div className="absolute -top-2 -right-2 z-10">
-                    <div className="message-dropdown relative">
-                      <button
-                        onClick={() => setShowDropdown(showDropdown === messageId ? null : messageId)}
-                        className="p-1 bg-gray-700 hover:bg-gray-600 text-white rounded-full shadow-lg transition-colors"
-                        title="Message options"
-                        disabled={isBeingDeleted}
-                      >
-                        <MoreVertical size={12} />
-                      </button>
-                      
-                      {/* Dropdown menu */}
-                      {showDropdown === messageId && (
-                        <div className="absolute right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-20 min-w-[120px]">
-                          <button
-                            onClick={() => handleDeleteMessage(message)}
-                            className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                            disabled={isBeingDeleted}
-                          >
-                            <Trash2 size={14} />
-                            {isBeingDeleted ? 'Deleting...' : 'Delete'}
-                          </button>
-                        </div>
+            return (
+              <div key={messageKey} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group`}>
+                <div className={`max-w-xs lg:max-w-md transition-all duration-300 hover:scale-[1.02] ${isOwn ? 'order-2' : 'order-1'}`}>
+                  <div className={`px-5 py-4 rounded-2xl shadow-xl backdrop-blur-sm transition-all duration-300 border ${
+                    isOwn 
+                      ? 'bg-gradient-to-br from-green-600 to-emerald-700 text-white shadow-green-500/30 border-green-500/30' 
+                      : 'bg-gradient-to-br from-gray-800 to-gray-900 text-gray-100 shadow-gray-900/50 border-gray-700/50'
+                  } ${isPending ? 'opacity-80' : ''} ${isFailed ? 'border-2 border-red-500/50' : ''}`}>
+                    
+                    {messageType === 'text' ? (
+                      <div className="leading-relaxed whitespace-pre-wrap break-words text-sm">
+                        {message.message}
+                      </div>
+                    ) : (
+                      renderFileMessage(message, messageType, isPending, isFailed, progress)
+                    )}
+                    
+                    <div className="flex items-center justify-between mt-3">
+                      <div className={`text-xs opacity-70 font-medium ${isOwn ? 'text-green-200' : 'text-gray-400'}`}>
+                        {formatTime(messageTime)}
+                      </div>
+                      {isOwn && !isPending && !isFailed && (
+                        <CheckCircle size={14} className="text-green-400 opacity-90" />
                       )}
                     </div>
+                    
+                    {renderStatusIndicator(message.messageStatus, isPending, isFailed)}
                   </div>
-                )}
-                
-                {/* Display username for received messages */}
-                {!isOwnMessage && toUser !== AI_BOT_NAME && (
-                  <div className="text-xs font-semibold text-blue-600 mb-1 capitalize">
-                    {message.fromUser}
-                  </div>
-                )}
-                
-                {/* Message content */}
-                {message.messageType === 'file' ? (
-                  <div className="mt-1">
-                    {renderFileMessage(message, isPending, isFailed, progress)}
-                  </div>
-                ) : (
-                  message.message &&
-                  !(typeof message.message === 'string' &&
-                    message.message.startsWith('http') &&
-                    message.message.includes('imagekit.io')) && (
-                    <p className="text-sm whitespace-pre-wrap break-words">
-                      {message.message}
-                    </p>
-                  )
-                )}
-                
-                {/* Timestamp and status */}
-                <div className="flex items-center justify-between mt-2">
-                  <p className={`text-xs ${
-                    isOwnMessage ? 'text-blue-100' : 'text-gray-500'
-                  }`}>
-                    {formatTime(messageTime)}
-                  </p>
-                  
-                  {isOwnMessage && (
-                    <div className="ml-2">
-                      {renderStatusIndicator(message.messageStatus, isPending, isFailed)}
-                    </div>
-                  )}
                 </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Enhanced Image Modal */}
+      {imageModal && (
+        <div 
+          className="fixed inset-0 bg-black/95 backdrop-blur-sm z-50 animate-in fade-in duration-300"
+          onClick={closeImageModal}
+        >
+          <div className="fixed inset-0 flex items-center justify-center p-4">
+            <div className="relative w-full h-full flex items-center justify-center">
+              <img 
+                src={imageModal} 
+                alt="Full size preview" 
+                className="max-w-[90vw] max-h-[90vh] w-auto h-auto object-contain rounded-lg shadow-2xl border border-green-500/30 animate-in zoom-in-50 duration-300"
+                onClick={(e) => e.stopPropagation()}
+              />
+              
+              <button 
+                onClick={closeImageModal}
+                className="absolute top-4 right-4 text-white bg-black/70 hover:bg-black/90 rounded-full p-3 transition-all duration-200 border border-green-500/30 hover:border-green-400/50 hover:scale-110 group z-10"
+                aria-label="Close image"
+              >
+                <X size={24} className="group-hover:rotate-90 transition-transform duration-200" />
+              </button>
+              
+              <a
+                href={imageModal}
+                download="image"
+                className="absolute bottom-4 right-4 text-white bg-black/70 hover:bg-black/90 rounded-full p-3 transition-all duration-200 border border-green-500/30 hover:border-green-400/50 hover:scale-110 group z-10"
+                onClick={(e) => e.stopPropagation()}
+                aria-label="Download image"
+              >
+                <Download size={20} className="group-hover:scale-110 transition-transform duration-200" />
+              </a>
+              
+              <div className="absolute bottom-4 left-4 text-white/70 text-sm bg-black/50 px-3 py-2 rounded-lg backdrop-blur-sm z-10">
+                Press ESC or click outside to close
               </div>
             </div>
           </div>
-        );
-      })}
-
-      {/* Empty state for selected conversation */}
-      {toUser && allMessages.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-full text-center px-4">
-          <div className="text-4xl lg:text-6xl mb-4 opacity-30">👋</div>
-          <h3 className="text-lg lg:text-xl font-semibold text-gray-300 mb-2">
-            Start your conversation with {toUser}
-          </h3>
-          <p className="text-gray-500 text-sm lg:text-base">
-            Send a message to begin chatting
-          </p>
         </div>
       )}
-      
-      <div ref={messagesEndRef} />
-    </div>
-  ); 
+    </>
+  );
 };
 
 export default ChatMessages;
