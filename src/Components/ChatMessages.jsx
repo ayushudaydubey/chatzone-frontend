@@ -306,7 +306,7 @@ const ChatMessages = ({
         case 'audio':
           return (
             <div className="max-w-xs lg:max-w-sm">
-              <div className={`p-4 rounded-xl ${isOwnMessage ? 'bg-gradient-to-r from-green-600 to-emerald-700 border border-green-500/30' : 'bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-600/30'} shadow-lg backdrop-blur-sm`}>
+              <div className={`p-4 rounded-xl ${isOwnMessage ? 'bg-gradient-to-r from-green-600 to-emerald-700 border border-green-500/30' : 'bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-600/30'}`}>
                 <audio controls className={`w-full ${isPending ? 'opacity-70' : ''}`}>
                   <source src={fileUrl} type={mimeType} />
                   Your browser does not support the audio element.
@@ -467,7 +467,7 @@ const ChatMessages = ({
 
   return (
     <>
-      <div className="flex-1 px-4 lg:px-8 py-6 space-y-6 pb-32 lg:pb-28 overflow-y-auto bg-gradient-to-b from-black via-gray-900 to-black">
+      <div className="flex-1 px-4 lg:px-8 py-6 space-y-6 pb-32 lg:pb-28 overflow-y-auto bg-gradient-to-b from-black via-zinc-950 to-black">
         {!toUser ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <div className="relative mb-8">
@@ -493,11 +493,11 @@ const ChatMessages = ({
 
             return (
               <div key={messageKey} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group`}>
-                <div className={`max-w-xs lg:max-w-md transition-all duration-300 hover:scale-[1.02] ${isOwn ? 'order-2' : 'order-1'}`}>
-                  <div className={`px-5 py-4 rounded-2xl shadow-xl backdrop-blur-sm transition-all duration-300 border ${
+                <div className={`max-w-xs lg:max-w-md transition-all duration-300  ${isOwn ? 'order-2' : 'order-1'}`}>
+                  <div className={`px-4 py-4 rounded-xl font-normal shadow-xl  transition-all duration-300  ${
                     isOwn 
-                      ? 'bg-gradient-to-br from-green-600 to-emerald-700 text-white shadow-green-500/30 border-green-500/30' 
-                      : 'bg-gradient-to-br from-gray-800 to-gray-900 text-gray-100 shadow-gray-900/50 border-gray-700/50'
+                      ? 'bg-gradient-to-br from-green-900 to-green-800 text-white    ' 
+                      : 'bg-gradient-to-br from-green-800 to-green-900  text-white  '
                   } ${isPending ? 'opacity-80' : ''} ${isFailed ? 'border-2 border-red-500/50' : ''}`}>
                     
                     {messageType === 'text' ? (
@@ -508,8 +508,8 @@ const ChatMessages = ({
                       renderFileMessage(message, messageType, isPending, isFailed, progress)
                     )}
                     
-                    <div className="flex items-center justify-between mt-3">
-                      <div className={`text-xs opacity-70 font-medium ${isOwn ? 'text-green-200' : 'text-gray-400'}`}>
+                    <div className="flex items-center gap-4 justify-between mt-3">
+                      <div className={`text-xs opacity-70  ${isOwn ? 'text-gray-400' : 'text-gray-200'}`}>
                         {formatTime(messageTime)}
                       </div>
                       {isOwn && !isPending && !isFailed && (
@@ -560,9 +560,7 @@ const ChatMessages = ({
                 <Download size={20} className="group-hover:scale-110 transition-transform duration-200" />
               </a>
               
-              <div className="absolute bottom-4 left-4 text-white/70 text-sm bg-black/50 px-3 py-2 rounded-lg backdrop-blur-sm z-10">
-                Press ESC or click outside to close
-              </div>
+         
             </div>
           </div>
         </div>
