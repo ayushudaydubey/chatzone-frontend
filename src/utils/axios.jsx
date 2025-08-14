@@ -6,6 +6,7 @@ const BASE_URL =
   (process.env.NODE_ENV === 'development'
     ? 'http://localhost:3000'
     : 'https://chatzone-backend.onrender.com');
+    
 
 // ✅ General axios instance (for JSON APIs)
 const axiosInstance = axios.create({

@@ -7,8 +7,17 @@ export const chatContext = createContext(null);
 const socket = io(
   process.env.NODE_ENV === "production"
     ? "https://chatzone-backend.onrender.com"
-    : "http://localhost:3000"
+    : "http://localhost:3000",
+  {
+    withCredentials: true,
+    transports: ['websocket', 'polling'],
+    autoConnect: true,
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000
+  }
 );
+
 
 const Context = (props) => {
   const [username, setUsername] = useState("");
