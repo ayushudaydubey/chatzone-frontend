@@ -1,12 +1,9 @@
 import React, { useContext } from 'react';
 import { X, MessageCircle, Bot, Sparkles, User, Circle } from 'lucide-react';
+import { chatContext } from '../Context/Context';
 
 // Mock context for demonstration
-const chatContext = React.createContext({
-  logout: () => console.log('Logout clicked'),
-  isLoading: false,
-  markMessagesAsRead: (user) => console.log('Mark as read:', user)
-});
+
 
 const UserList = ({
   users = [
@@ -358,7 +355,7 @@ const UserList = ({
               <p className="text-green-600/70 text-xs font-medium">Online</p>
             </div>
             <button
-              onClick={() => logout()}
+              onClick={logout} // Changed from: onClick={() => logout}
               className={`px-4 py-1 text-red-500 text-xs cursor-pointer transition-all tracking-wide font-thin border-[1px] rounded-md border-red-500/60 hover:scale-95 hover:text-blue-50 hover:shadow-sm hover:shadow-red-500 ${
                 isLoading ? 'opacity-50 cursor-not-allowed' : ''
               }`}

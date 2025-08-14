@@ -494,7 +494,7 @@ const ChatMessages = ({
             return (
               <div key={messageKey} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group`}>
                 <div className={`max-w-xs lg:max-w-md transition-all duration-300  ${isOwn ? 'order-2' : 'order-1'}`}>
-                  <div className={`px-4 py-4 rounded-xl font-normal shadow-xl  transition-all duration-300  ${
+                  <div className={`px-4 py-4 rounded-xl text-xl shadow-xl  transition-all duration-300  ${
                     isOwn 
                       ? 'bg-gradient-to-br from-green-900 to-green-800 text-white    ' 
                       : 'bg-gradient-to-br from-green-800 to-green-900  text-white  '

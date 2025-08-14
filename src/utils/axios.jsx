@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const BASE_URL =
   import.meta?.env?.VITE_API_URL || // for Vite
-  process.env.REACT_APP_API_URL ||  // for CRA
+
   (process.env.NODE_ENV === 'development'
     ? 'http://localhost:3000'
     : 'https://chatzone-backend.onrender.com');
