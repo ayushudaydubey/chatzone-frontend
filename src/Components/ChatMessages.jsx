@@ -355,47 +355,7 @@ const ChatMessages = ({
     );
   };
 
-  // Sample messages for demo
-  const sampleMessages = [
-    {
-      _id: '1',
-      fromUser: username,
-      toUser: toUser,
-      message: 'Hello! How are you?',
-      timestamp: new Date(Date.now() - 300000).toISOString()
-    },
-    {
-      _id: '2',
-      fromUser: toUser,
-      toUser: username,
-      message: 'I am doing great! Thanks for asking.',
-      timestamp: new Date(Date.now() - 240000).toISOString()
-    },
-    {
-      _id: '3',
-      fromUser: username,
-      toUser: toUser,
-      message: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=500&h=300&fit=crop',
-      timestamp: new Date(Date.now() - 180000).toISOString()
-    },
-    {
-      _id: '4',
-      fromUser: toUser,
-      toUser: username,
-      message: 'Beautiful landscape! Where was this taken?',
-      timestamp: new Date(Date.now() - 120000).toISOString()
-    },
-    {
-      _id: '5',
-      fromUser: username,
-      toUser: toUser,
-      message: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400&h=600&fit=crop',
-      timestamp: new Date(Date.now() - 60000).toISOString()
-    }
-  ];
-
   const allMessages = useMemo(() => {
-    const safeMessages = Array.isArray(messages) && messages.length > 0 ? messages : sampleMessages;
     const safePendingMessages = Array.isArray(pendingMessages) ? pendingMessages : [];
     const safeFailedMessages = Array.isArray(failedMessages) ? failedMessages : [];
 
@@ -418,7 +378,7 @@ const ChatMessages = ({
         .map(m => ({ ...m, messageStatus: type }));
 
     const combinedMessages = [
-      ...filterMessagesForConversation(safeMessages, 'sent'),
+      ...filterMessagesForConversation(messages, 'sent'),
       ...filterMessagesForConversation(safePendingMessages, 'pending'),
       ...filterMessagesForConversation(safeFailedMessages, 'failed')
     ];
@@ -463,7 +423,7 @@ const ChatMessages = ({
       const timeB = new Date(b.timestamp || b.timeStamp || b.createdAt || 0).getTime();
       return timeA - timeB;
     });
-  }, [messages, pendingMessages, failedMessages, username, toUser, AI_BOT_NAME, sampleMessages]);
+  }, [messages, pendingMessages, failedMessages, username, toUser, AI_BOT_NAME]);
 
   return (
     <>
